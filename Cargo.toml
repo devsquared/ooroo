@@ -9,6 +9,9 @@ keywords = ["rules", "dsl", "engine", "evaluation"]
 categories = ["data-structures", "config"]
 readme = "README.md"
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+
 [dependencies]
 thiserror = "2"
 winnow = "0.7"

@@ -3,7 +3,7 @@ use std::fmt;
 use super::context::Context;
 use super::error::CompileError;
 use super::evaluation_report::EvaluationReport;
-use super::expr::Expr;
+use super::expr::{CompiledExpr, Expr};
 use super::field_registry::FieldRegistry;
 use super::indexed_context::{ContextBuilder, IndexedContext};
 use super::rule::{CompiledRule, Rule, Terminal};
@@ -185,6 +185,41 @@ impl RuleSet {
         Self::from_dsl(&input)
     }
 
+    /// Returns the compiled rule names in execution (topological) order.
+    ///
+    /// Every dependency appears before the rule that depends on it.
+    /// Useful for static analysis and verifying compilation invariants.
+    #[must_use]
+    pub fn execution_order(&self) -> Vec<&str> {
+        self.rules.iter().map(|r| r.name.as_str()).collect()
+    }
+
+    /// Returns the terminal names in priority order (ascending).
+    ///
+    /// Lower priority numbers are checked first during evaluation.
+    #[must_use]
+    pub fn terminal_order(&self) -> Vec<(&str, u32)> {
+        self.terminals
+            .iter()
+            .map(|t| (t.rule_name.as_str(), t.priority))
+            .collect()
+    }
+
+    /// Returns the names of rules that a given rule depends on (via `rule_ref`).
+    ///
+    /// Returns `None` if the rule name is not found.
+    #[must_use]
+    pub fn dependencies_of(&self, rule_name: &str) -> Option<Vec<&str>> {
+        self.rules.iter().find(|r| r.name == rule_name).map(|r| {
+            let mut indices = Vec::new();
+            collect_rule_ref_indices(&r.condition, &mut indices);
+            indices
+                .into_iter()
+                .map(|idx| self.rules[idx].name.as_str())
+                .collect()
+        })
+    }
+
     /// Flatten a `Context` into a `Vec<Option<Value>>` using the field registry.
     fn flatten_context(&self, ctx: &Context) -> Vec<Option<Value>> {
         let mut values = vec![None; self.field_registry.len()];
@@ -192,6 +227,18 @@ impl RuleSet {
             values[idx] = ctx.get(path).cloned();
         }
         values
+    }
+}
+
+fn collect_rule_ref_indices(expr: &CompiledExpr, out: &mut Vec<usize>) {
+    match expr {
+        CompiledExpr::RuleRef(idx) => out.push(*idx),
+        CompiledExpr::And(a, b) | CompiledExpr::Or(a, b) => {
+            collect_rule_ref_indices(a, out);
+            collect_rule_ref_indices(b, out);
+        }
+        CompiledExpr::Not(inner) => collect_rule_ref_indices(inner, out),
+        CompiledExpr::Compare { .. } => {}
     }
 }
 
