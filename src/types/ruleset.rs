@@ -1,11 +1,33 @@
-use std::collections::HashMap;
+use std::fmt;
 
 use super::context::Context;
 use super::error::CompileError;
+use super::evaluation_report::EvaluationReport;
 use super::expr::Expr;
+use super::field_registry::FieldRegistry;
+use super::indexed_context::{ContextBuilder, IndexedContext};
 use super::rule::{CompiledRule, Rule, Terminal};
+use super::value::Value;
 use super::verdict::Verdict;
 
+/// Builder for constructing a [`RuleSet`].
+///
+/// Rules are defined via closures and compiled into an immutable, thread-safe
+/// execution structure.
+///
+/// # Example
+///
+/// ```
+/// use ooroo::{RuleSetBuilder, field, rule_ref};
+///
+/// let ruleset = RuleSetBuilder::new()
+///     .rule("age_ok", |r| r.when(field("age").gte(18_i64)))
+///     .rule("active", |r| r.when(field("status").eq("active")))
+///     .rule("allowed", |r| r.when(rule_ref("age_ok").and(rule_ref("active"))))
+///     .terminal("allowed", 0)
+///     .compile()
+///     .unwrap();
+/// ```
 #[derive(Debug, Default)]
 pub struct RuleSetBuilder {
     rules: Vec<Rule>,
@@ -26,18 +48,14 @@ impl RuleSetBuilder {
 
     /// Define a rule. The closure must call `.when(expr)` to set the condition.
     ///
-    /// # Panics
-    ///
-    /// Panics if the closure does not call `.when()` to set a condition.
+    /// If `.when()` is not called, compilation will fail with
+    /// [`CompileError::MissingCondition`].
     #[must_use]
     pub fn rule(mut self, name: &str, f: impl FnOnce(RuleBuilder) -> RuleBuilder) -> Self {
         let builder = f(RuleBuilder { condition: None });
-        let condition = builder
-            .condition
-            .expect("rule closure must call .when() to set a condition");
         self.rules.push(Rule {
             name: name.to_owned(),
-            condition,
+            condition: builder.condition,
         });
         self
     }
@@ -77,7 +95,9 @@ impl RuleBuilder {
 pub struct RuleSet {
     pub(crate) rules: Vec<CompiledRule>,
     pub(crate) terminals: Vec<Terminal>,
-    pub(crate) rule_indices: HashMap<String, usize>,
+    pub(crate) field_registry: FieldRegistry,
+    /// Pre-resolved indices into `rules` for each terminal, in priority order.
+    pub(crate) terminal_indices: Vec<usize>,
 }
 
 impl RuleSet {
@@ -87,7 +107,103 @@ impl RuleSet {
     /// or `None` if no terminal evaluates to `true`.
     #[must_use]
     pub fn evaluate(&self, ctx: &Context) -> Option<Verdict> {
-        crate::evaluate::evaluate(&self.rules, &self.terminals, &self.rule_indices, ctx)
+        let field_values = self.flatten_context(ctx);
+        crate::evaluate::evaluate(
+            &self.rules,
+            &self.terminals,
+            &self.terminal_indices,
+            &field_values,
+        )
+    }
+
+    /// Create a context builder for this ruleset. The builder uses the field registry
+    /// to map field paths to pre-resolved indices for fast evaluation.
+    #[must_use]
+    pub fn context_builder(&self) -> ContextBuilder<'_> {
+        ContextBuilder::new(&self.field_registry)
+    }
+
+    /// Evaluate this ruleset against a pre-indexed context.
+    ///
+    /// This is the fast path: no field path resolution happens at evaluation time.
+    /// Use [`context_builder()`](Self::context_builder) to create the context.
+    #[must_use]
+    pub fn evaluate_indexed(&self, ctx: &IndexedContext) -> Option<Verdict> {
+        crate::evaluate::evaluate(
+            &self.rules,
+            &self.terminals,
+            &self.terminal_indices,
+            ctx.values(),
+        )
+    }
+
+    /// Evaluate with detailed diagnostics using a `Context`.
+    ///
+    /// Returns an [`EvaluationReport`] with the verdict, which rules evaluated to true,
+    /// evaluation order, and timing information.
+    pub fn evaluate_detailed(&self, ctx: &Context) -> EvaluationReport {
+        let field_values = self.flatten_context(ctx);
+        crate::evaluate::evaluate_detailed(
+            &self.rules,
+            &self.terminals,
+            &self.terminal_indices,
+            &field_values,
+        )
+    }
+
+    /// Evaluate with detailed diagnostics using a pre-indexed context.
+    pub fn evaluate_detailed_indexed(&self, ctx: &IndexedContext) -> EvaluationReport {
+        crate::evaluate::evaluate_detailed(
+            &self.rules,
+            &self.terminals,
+            &self.terminal_indices,
+            ctx.values(),
+        )
+    }
+
+    /// Parse a DSL string and compile into a `RuleSet`.
+    ///
+    /// This is a convenience method combining [`parse`](crate::parse::parse)
+    /// and [`RuleSetBuilder::compile()`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OorooError`](crate::OorooError) on parse or compile failure.
+    pub fn from_dsl(input: &str) -> Result<Self, crate::OorooError> {
+        let parsed = crate::parse::parse(input)?;
+        let ruleset = crate::compile::compile(&parsed.rules, parsed.terminals)?;
+        Ok(ruleset)
+    }
+
+    /// Read a DSL file and compile into a `RuleSet`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OorooError`](crate::OorooError) on I/O, parse, or compile failure.
+    pub fn from_file(path: impl AsRef<std::path::Path>) -> Result<Self, crate::OorooError> {
+        let input = std::fs::read_to_string(path)?;
+        Self::from_dsl(&input)
+    }
+
+    /// Flatten a `Context` into a `Vec<Option<Value>>` using the field registry.
+    fn flatten_context(&self, ctx: &Context) -> Vec<Option<Value>> {
+        let mut values = vec![None; self.field_registry.len()];
+        for (path, &idx) in self.field_registry.iter() {
+            values[idx] = ctx.get(path).cloned();
+        }
+        values
+    }
+}
+
+impl fmt::Display for RuleSet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "RuleSet({} rules, {} terminals, {} fields)",
+            self.rules.len(),
+            self.terminals.len(),
+            self.field_registry.len(),
+        )
     }
 }
 
@@ -145,8 +261,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "rule closure must call .when()")]
-    fn builder_rule_without_when_panics() {
-        let _builder = RuleSetBuilder::new().rule("bad_rule", |r| r);
+    fn builder_rule_without_when_returns_error() {
+        let result = RuleSetBuilder::new()
+            .rule("bad_rule", |r| r)
+            .terminal("bad_rule", 0)
+            .compile();
+        assert!(matches!(
+            result,
+            Err(CompileError::MissingCondition { rule }) if rule == "bad_rule"
+        ));
     }
 }

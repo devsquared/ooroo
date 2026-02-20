@@ -1,7 +1,9 @@
+use std::fmt;
 use std::ops::Not;
 
 use super::Value;
 
+/// Comparison operators supported in rule expressions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompareOp {
     Eq,
@@ -12,6 +14,8 @@ pub enum CompareOp {
     Lte,
 }
 
+/// User-facing expression AST. Field paths and rule names are strings.
+/// Transformed into [`CompiledExpr`] during compilation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Compare {
@@ -23,6 +27,47 @@ pub enum Expr {
     Or(Box<Expr>, Box<Expr>),
     Not(Box<Expr>),
     RuleRef(String),
+}
+
+/// Compiled expression with all string lookups resolved to integer indices.
+/// Field paths are resolved via the [`FieldRegistry`](super::FieldRegistry) and rule
+/// references are resolved to their topological sort index.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum CompiledExpr {
+    Compare {
+        field_index: usize,
+        op: CompareOp,
+        value: Value,
+    },
+    And(Box<CompiledExpr>, Box<CompiledExpr>),
+    Or(Box<CompiledExpr>, Box<CompiledExpr>),
+    Not(Box<CompiledExpr>),
+    RuleRef(usize),
+}
+
+impl fmt::Display for CompareOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CompareOp::Eq => write!(f, "=="),
+            CompareOp::Neq => write!(f, "!="),
+            CompareOp::Gt => write!(f, ">"),
+            CompareOp::Gte => write!(f, ">="),
+            CompareOp::Lt => write!(f, "<"),
+            CompareOp::Lte => write!(f, "<="),
+        }
+    }
+}
+
+impl fmt::Display for Expr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Expr::Compare { field, op, value } => write!(f, "({field} {op} {value})"),
+            Expr::And(a, b) => write!(f, "({a} AND {b})"),
+            Expr::Or(a, b) => write!(f, "({a} OR {b})"),
+            Expr::Not(inner) => write!(f, "(NOT {inner})"),
+            Expr::RuleRef(name) => write!(f, "{name}"),
+        }
+    }
 }
 
 impl Expr {

@@ -1,24 +1,95 @@
-use std::collections::HashMap;
+use std::time::Instant;
 
-use crate::{CompiledRule, Context, Expr, Terminal, Value, Verdict};
+use crate::types::evaluation_report::EvaluationReport;
+use crate::types::{CompiledExpr, CompiledRule};
+use crate::{Terminal, Value, Verdict};
+
+/// Stack threshold: rulesets with this many rules or fewer use a stack-allocated
+/// result array instead of a heap-allocated `Vec`.
+const STACK_THRESHOLD: usize = 64;
 
 pub(crate) fn evaluate(
     rules: &[CompiledRule],
     terminals: &[Terminal],
-    rule_indices: &HashMap<String, usize>,
-    ctx: &Context,
+    terminal_indices: &[usize],
+    field_values: &[Option<Value>],
 ) -> Option<Verdict> {
-    let mut results = vec![false; rules.len()];
+    if rules.len() <= STACK_THRESHOLD {
+        let mut results = [false; STACK_THRESHOLD];
+        evaluate_inner(
+            rules,
+            terminals,
+            terminal_indices,
+            field_values,
+            &mut results,
+        )
+    } else {
+        let mut results = vec![false; rules.len()];
+        evaluate_inner(
+            rules,
+            terminals,
+            terminal_indices,
+            field_values,
+            &mut results,
+        )
+    }
+}
+
+pub(crate) fn evaluate_detailed(
+    rules: &[CompiledRule],
+    terminals: &[Terminal],
+    terminal_indices: &[usize],
+    field_values: &[Option<Value>],
+) -> EvaluationReport {
+    let start = Instant::now();
+
+    let mut results_buf;
+    let mut results_vec;
+    let results: &mut [bool] = if rules.len() <= STACK_THRESHOLD {
+        results_buf = [false; STACK_THRESHOLD];
+        &mut results_buf[..]
+    } else {
+        results_vec = vec![false; rules.len()];
+        &mut results_vec[..]
+    };
+
+    let mut evaluation_order = Vec::with_capacity(rules.len());
+    let mut evaluated = Vec::new();
 
     for rule in rules {
-        results[rule.index] = eval_expr(&rule.condition, ctx, &results, rule_indices);
+        results[rule.index] = eval_expr(&rule.condition, field_values, results);
+        evaluation_order.push(rule.name.clone());
+        if results[rule.index] {
+            evaluated.push(rule.name.clone());
+        }
+    }
+
+    let mut verdict = None;
+    for (terminal, &idx) in terminals.iter().zip(terminal_indices) {
+        if results[idx] {
+            verdict = Some(Verdict::new(&terminal.rule_name, true));
+            break;
+        }
+    }
+
+    let duration = start.elapsed();
+    EvaluationReport::new(verdict, evaluated, evaluation_order, duration)
+}
+
+fn evaluate_inner(
+    rules: &[CompiledRule],
+    terminals: &[Terminal],
+    terminal_indices: &[usize],
+    field_values: &[Option<Value>],
+    results: &mut [bool],
+) -> Option<Verdict> {
+    for rule in rules {
+        results[rule.index] = eval_expr(&rule.condition, field_values, results);
     }
 
     // Terminals are pre-sorted by priority (ascending = highest priority first)
-    for terminal in terminals {
-        if let Some(&idx) = rule_indices.get(&terminal.rule_name)
-            && results[idx]
-        {
+    for (terminal, &idx) in terminals.iter().zip(terminal_indices) {
+        if results[idx] {
             return Some(Verdict::new(&terminal.rule_name, true));
         }
     }
@@ -26,33 +97,31 @@ pub(crate) fn evaluate(
     None
 }
 
-fn eval_expr(
-    expr: &Expr,
-    ctx: &Context,
-    results: &[bool],
-    rule_indices: &HashMap<String, usize>,
-) -> bool {
+fn eval_expr(expr: &CompiledExpr, field_values: &[Option<Value>], results: &[bool]) -> bool {
     match expr {
-        Expr::Compare { field, op, value } => ctx
-            .get(field)
+        CompiledExpr::Compare {
+            field_index,
+            op,
+            value,
+        } => field_values
+            .get(*field_index)
+            .and_then(Option::as_ref)
             .and_then(|ctx_val: &Value| ctx_val.compare(*op, value))
             .unwrap_or(false),
-        Expr::And(a, b) => {
-            eval_expr(a, ctx, results, rule_indices) && eval_expr(b, ctx, results, rule_indices)
+        CompiledExpr::And(a, b) => {
+            eval_expr(a, field_values, results) && eval_expr(b, field_values, results)
         }
-        Expr::Or(a, b) => {
-            eval_expr(a, ctx, results, rule_indices) || eval_expr(b, ctx, results, rule_indices)
+        CompiledExpr::Or(a, b) => {
+            eval_expr(a, field_values, results) || eval_expr(b, field_values, results)
         }
-        Expr::Not(inner) => !eval_expr(inner, ctx, results, rule_indices),
-        Expr::RuleRef(name) => rule_indices
-            .get(name.as_str())
-            .is_some_and(|&idx| results[idx]),
+        CompiledExpr::Not(inner) => !eval_expr(inner, field_values, results),
+        CompiledExpr::RuleRef(idx) => results[*idx],
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{Context, RuleSetBuilder, Verdict, field, rule_ref};
+    use crate::{field, rule_ref, Context, RuleSetBuilder, Verdict};
 
     fn build_and_eval(builder: RuleSetBuilder, ctx: &Context) -> Option<Verdict> {
         let ruleset = builder.compile().unwrap();
@@ -362,5 +431,31 @@ mod tests {
             &ctx,
         );
         assert_eq!(result, Some(Verdict::new("r", true)));
+    }
+
+    #[test]
+    fn eval_large_ruleset_heap_fallback() {
+        // 65 rules to exceed the stack threshold of 64
+        let mut builder = RuleSetBuilder::new();
+        let mut ctx = Context::new();
+
+        for i in 0..65 {
+            let field_name = format!("f{i}");
+            let rule_name = format!("r{i}");
+            let field_name_clone = field_name.clone();
+            builder = builder.rule(&rule_name, move |r| {
+                r.when(field(&field_name_clone).eq(1_i64))
+            });
+            ctx = ctx.set(&field_name, 1_i64);
+        }
+
+        // Chain all rules into a final rule via the last leaf rule
+        builder = builder
+            .rule("final", |r| r.when(rule_ref("r64")))
+            .terminal("final", 0);
+
+        let ruleset = builder.compile().unwrap();
+        let result = ruleset.evaluate(&ctx);
+        assert_eq!(result, Some(Verdict::new("final", true)));
     }
 }

@@ -1,13 +1,16 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::{CompileError, CompiledRule, Expr, Rule, RuleSet, Terminal};
+use crate::types::{CompiledExpr, CompiledRule};
+use crate::{CompileError, Expr, FieldRegistry, Rule, RuleSet, Terminal};
 
 pub(crate) fn compile(
     rules: &[Rule],
     mut terminals: Vec<Terminal>,
 ) -> Result<RuleSet, CompileError> {
+    check_missing_conditions(rules)?;
     check_duplicates(rules)?;
     check_terminals(&terminals, rules)?;
+    check_duplicate_terminals(&terminals)?;
 
     let rule_map: HashMap<&str, &Rule> = rules.iter().map(|r| (r.name.as_str(), r)).collect();
 
@@ -21,6 +24,11 @@ pub(crate) fn compile(
         .map(|(i, name): (usize, &String)| (name.clone(), i))
         .collect();
 
+    let mut field_registry = FieldRegistry::new();
+    for rule in rules {
+        collect_fields(condition_of(rule), &mut field_registry);
+    }
+
     let compiled_rules: Vec<CompiledRule> = sorted_names
         .iter()
         .enumerate()
@@ -28,7 +36,7 @@ pub(crate) fn compile(
             let rule = rule_map[name.as_str()];
             CompiledRule {
                 name: rule.name.clone(),
-                condition: rule.condition.clone(),
+                condition: compile_expr(condition_of(rule), &field_registry, &rule_indices),
                 index: i,
             }
         })
@@ -36,11 +44,36 @@ pub(crate) fn compile(
 
     terminals.sort_by_key(|t| t.priority);
 
+    let terminal_indices: Vec<usize> = terminals
+        .iter()
+        .map(|t| rule_indices[&t.rule_name])
+        .collect();
+
     Ok(RuleSet {
         rules: compiled_rules,
         terminals,
-        rule_indices,
+        field_registry,
+        terminal_indices,
     })
+}
+
+/// Returns the condition of a rule, assuming `check_missing_conditions` has
+/// already validated that every rule has a condition.
+fn condition_of(rule: &Rule) -> &Expr {
+    rule.condition
+        .as_ref()
+        .expect("condition validated by check_missing_conditions")
+}
+
+fn check_missing_conditions(rules: &[Rule]) -> Result<(), CompileError> {
+    for rule in rules {
+        if rule.condition.is_none() {
+            return Err(CompileError::MissingCondition {
+                rule: rule.name.clone(),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn check_duplicates(rules: &[Rule]) -> Result<(), CompileError> {
@@ -49,6 +82,18 @@ fn check_duplicates(rules: &[Rule]) -> Result<(), CompileError> {
         if !seen.insert(&rule.name) {
             return Err(CompileError::DuplicateRule {
                 name: rule.name.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn check_duplicate_terminals(terminals: &[Terminal]) -> Result<(), CompileError> {
+    let mut seen = HashSet::new();
+    for terminal in terminals {
+        if !seen.insert(&terminal.rule_name) {
+            return Err(CompileError::DuplicateTerminal {
+                terminal: terminal.rule_name.clone(),
             });
         }
     }
@@ -72,7 +117,7 @@ fn check_terminals(terminals: &[Terminal], rules: &[Rule]) -> Result<(), Compile
 
 fn check_references(rules: &[Rule], rule_map: &HashMap<&str, &Rule>) -> Result<(), CompileError> {
     for rule in rules {
-        collect_and_check_refs(&rule.condition, &rule.name, rule_map)?;
+        collect_and_check_refs(condition_of(rule), &rule.name, rule_map)?;
     }
     Ok(())
 }
@@ -119,7 +164,7 @@ fn topological_sort(
     }
 
     for rule in rules {
-        let deps = collect_rule_refs(&rule.condition);
+        let deps = collect_rule_refs(condition_of(rule));
         for dep in deps {
             if rule_names.contains(dep.as_str()) {
                 dependents
@@ -190,10 +235,9 @@ enum DfsState {
 fn find_cycle(rules: &[Rule], rule_map: &HashMap<&str, &Rule>) -> Vec<String> {
     let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
     for rule in rules {
-        let deps: Vec<&str> = collect_rule_refs(&rule.condition)
+        let deps: Vec<&str> = collect_rule_refs(condition_of(rule))
             .into_iter()
-            .filter(|r| rule_map.contains_key(r.as_str()))
-            .map(|r| *rule_map.keys().find(|&&k| k == r.as_str()).unwrap())
+            .filter_map(|r| rule_map.get_key_value(r.as_str()).map(|(&k, _)| k))
             .collect();
         adj.insert(rule.name.as_str(), deps);
     }
@@ -206,10 +250,10 @@ fn find_cycle(rules: &[Rule], rule_map: &HashMap<&str, &Rule>) -> Vec<String> {
 
     for rule in rules {
         let name = rule.name.as_str();
-        if state.get(name) == Some(&DfsState::Unvisited)
-            && let Some(cycle) = dfs(name, &adj, &mut state, &mut stack)
-        {
-            return cycle;
+        if state.get(name) == Some(&DfsState::Unvisited) {
+            if let Some(cycle) = dfs(name, &adj, &mut state, &mut stack) {
+                return cycle;
+            }
         }
     }
 
@@ -230,7 +274,10 @@ fn dfs<'a>(
         for &neighbor in neighbors {
             match state.get(neighbor) {
                 Some(DfsState::InStack) => {
-                    let pos = stack.iter().position(|&n| n == neighbor).unwrap();
+                    let pos = stack
+                        .iter()
+                        .position(|&n| n == neighbor)
+                        .expect("node marked InStack must be present in stack");
                     let mut cycle: Vec<String> =
                         stack[pos..].iter().map(|&s| s.to_owned()).collect();
                     cycle.push(neighbor.to_owned());
@@ -251,9 +298,55 @@ fn dfs<'a>(
     None
 }
 
+fn collect_fields(expr: &Expr, registry: &mut FieldRegistry) {
+    match expr {
+        Expr::Compare { field, .. } => {
+            registry.register(field);
+        }
+        Expr::And(a, b) | Expr::Or(a, b) => {
+            collect_fields(a, registry);
+            collect_fields(b, registry);
+        }
+        Expr::Not(inner) => collect_fields(inner, registry),
+        Expr::RuleRef(_) => {}
+    }
+}
+
+fn compile_expr(
+    expr: &Expr,
+    field_registry: &FieldRegistry,
+    rule_indices: &HashMap<String, usize>,
+) -> CompiledExpr {
+    match expr {
+        Expr::Compare { field, op, value } => CompiledExpr::Compare {
+            field_index: field_registry
+                .get(field)
+                .expect("field should be registered"),
+            op: *op,
+            value: value.clone(),
+        },
+        Expr::And(a, b) => CompiledExpr::And(
+            Box::new(compile_expr(a, field_registry, rule_indices)),
+            Box::new(compile_expr(b, field_registry, rule_indices)),
+        ),
+        Expr::Or(a, b) => CompiledExpr::Or(
+            Box::new(compile_expr(a, field_registry, rule_indices)),
+            Box::new(compile_expr(b, field_registry, rule_indices)),
+        ),
+        Expr::Not(inner) => {
+            CompiledExpr::Not(Box::new(compile_expr(inner, field_registry, rule_indices)))
+        }
+        Expr::RuleRef(name) => CompiledExpr::RuleRef(
+            *rule_indices
+                .get(name)
+                .expect("rule reference should be validated"),
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{CompileError, RuleSetBuilder, field, rule_ref};
+    use crate::{field, rule_ref, CompileError, RuleSetBuilder};
 
     #[test]
     fn compile_simple_ruleset() {
@@ -307,6 +400,28 @@ mod tests {
     }
 
     #[test]
+    fn compile_duplicate_terminal() {
+        let result = RuleSetBuilder::new()
+            .rule("r1", |r| r.when(field("x").eq(1_i64)))
+            .terminal("r1", 0)
+            .terminal("r1", 5)
+            .compile();
+        assert!(matches!(
+            result,
+            Err(CompileError::DuplicateTerminal { .. })
+        ));
+    }
+
+    #[test]
+    fn compile_missing_condition() {
+        let result = RuleSetBuilder::new()
+            .rule("r1", |r| r)
+            .terminal("r1", 0)
+            .compile();
+        assert!(matches!(result, Err(CompileError::MissingCondition { .. })));
+    }
+
+    #[test]
     fn compile_cycle_detection() {
         let result = RuleSetBuilder::new()
             .rule("a", |r| r.when(rule_ref("b")))
@@ -339,9 +454,11 @@ mod tests {
             .compile()
             .unwrap();
 
-        let leaf_idx = ruleset.rule_indices["leaf"];
-        let mid_idx = ruleset.rule_indices["mid"];
-        let top_idx = ruleset.rule_indices["top"];
+        let index_of =
+            |name: &str| -> usize { ruleset.rules.iter().find(|r| r.name == name).unwrap().index };
+        let leaf_idx = index_of("leaf");
+        let mid_idx = index_of("mid");
+        let top_idx = index_of("top");
         assert!(leaf_idx < mid_idx);
         assert!(mid_idx < top_idx);
     }

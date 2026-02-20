@@ -1,0 +1,16 @@
+# Ooroo example ruleset
+#
+# Demonstrates a deny-before-allow pattern where banned users
+# are rejected before eligibility checks run.
+
+rule eligible_age:
+    user.age >= 18
+
+rule active_account:
+    user.status == "active"
+
+rule can_proceed (priority 10):
+    eligible_age AND active_account
+
+rule banned (priority 0):
+    user.banned == true

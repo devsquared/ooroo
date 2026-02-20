@@ -1,11 +1,19 @@
+use std::fmt;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use]
 pub struct Verdict {
     terminal: String,
     result: bool,
 }
 
+impl fmt::Display for Verdict {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} = {}", self.terminal, self.result)
+    }
+}
+
 impl Verdict {
-    #[must_use]
     pub fn new(terminal: impl Into<String>, result: bool) -> Self {
         Self {
             terminal: terminal.into(),

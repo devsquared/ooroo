@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::thread;
 
-use ooroo::{Context, RuleSetBuilder, Verdict, field, rule_ref};
+use ooroo::{field, rule_ref, Context, RuleSetBuilder, Verdict};
 
 #[test]
 fn evaluate_across_threads() {

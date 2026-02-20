@@ -17,8 +17,13 @@ pub enum CompileError {
     #[error("no terminal rules defined; at least one terminal is required")]
     NoTerminals,
 
-    #[error("undefined field '{field}' in rule '{rule}'")]
-    UndefinedField { rule: String, field: String },
+    #[error("rule '{rule}' has no condition; the .when() call is required")]
+    MissingCondition { rule: String },
+
+    #[error(
+        "duplicate terminal '{terminal}'; each rule may only be registered as a terminal once"
+    )]
+    DuplicateTerminal { terminal: String },
 }
 
 #[cfg(test)]
@@ -74,14 +79,24 @@ mod tests {
     }
 
     #[test]
-    fn undefined_field_message() {
-        let err = CompileError::UndefinedField {
-            rule: "check_age".into(),
-            field: "user.age".into(),
+    fn missing_condition_message() {
+        let err = CompileError::MissingCondition {
+            rule: "bad_rule".into(),
         };
         assert_eq!(
             err.to_string(),
-            "undefined field 'user.age' in rule 'check_age'"
+            "rule 'bad_rule' has no condition; the .when() call is required"
+        );
+    }
+
+    #[test]
+    fn duplicate_terminal_message() {
+        let err = CompileError::DuplicateTerminal {
+            terminal: "can_proceed".into(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "duplicate terminal 'can_proceed'; each rule may only be registered as a terminal once"
         );
     }
 }
