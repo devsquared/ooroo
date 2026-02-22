@@ -54,10 +54,14 @@ mod compile;
 mod error;
 mod evaluate;
 pub(crate) mod parse;
+#[cfg(feature = "binary-cache")]
+pub(crate) mod serial;
 mod types;
 
 pub use error::OorooError;
 pub use parse::ParseError;
+#[cfg(feature = "binary-cache")]
+pub use serial::{DeserializeError, SerializeError};
 pub use types::{
     field, rule_ref, CompareOp, CompileError, Context, ContextBuilder, EvaluationReport, Expr,
     FieldExpr, FieldRegistry, IndexedContext, Rule, RuleSet, RuleSetBuilder, Terminal, Value,

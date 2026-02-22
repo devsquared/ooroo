@@ -20,4 +20,12 @@ pub enum OorooError {
     /// An I/O error (e.g., reading a DSL file).
     #[error(transparent)]
     Io(#[from] std::io::Error),
+
+    #[cfg(feature = "binary-cache")]
+    #[error(transparent)]
+    Serialize(#[from] crate::serial::SerializeError),
+
+    #[cfg(feature = "binary-cache")]
+    #[error(transparent)]
+    Deserialize(#[from] crate::serial::DeserializeError),
 }

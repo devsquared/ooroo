@@ -11,6 +11,13 @@ pub struct FieldRegistry {
 }
 
 impl FieldRegistry {
+    #[cfg(feature = "binary-cache")]
+    pub(crate) fn from_pairs(pairs: Vec<(String, usize)>) -> Self {
+        let len = pairs.iter().map(|(_, idx)| idx + 1).max().unwrap_or(0);
+        let paths = pairs.into_iter().collect();
+        Self { paths, len }
+    }
+
     pub(crate) fn new() -> Self {
         Self {
             paths: HashMap::new(),

@@ -10,12 +10,19 @@ keywords = ["rules", "dsl", "engine", "evaluation"]
 categories = ["data-structures", "config"]
 readme = "README.md"
 
+[features]
+default = []
+binary-cache = ["dep:bincode", "dep:blake3", "dep:serde"]
+
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(feature, values("binary-cache"))'] }
 
 [dependencies]
 thiserror = "2"
 winnow = "0.7"
+bincode = { version = "2", optional = true, features = ["serde"] }
+blake3 = { version = "1", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
