@@ -53,13 +53,13 @@
 mod compile;
 mod error;
 mod evaluate;
-pub mod parse;
+pub(crate) mod parse;
 #[cfg(feature = "binary-cache")]
 pub(crate) mod serial;
 mod types;
 
 pub use error::OorooError;
-pub use parse::{ParseError, ParsedRuleSet};
+pub use parse::ParseError;
 #[cfg(feature = "binary-cache")]
 pub use serial::{DeserializeError, SerializeError};
 pub use types::{

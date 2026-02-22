@@ -2,12 +2,14 @@ use super::expr::{CompiledExpr, Expr};
 
 /// A named rule with an optional boolean condition expression.
 ///
-/// Rules are created via [`RuleSetBuilder`](super::RuleSet) or by parsing a DSL
+/// Rules are created via [`RuleSetBuilder`](super::RuleSetBuilder) or by parsing a DSL
 /// string with [`RuleSet::from_dsl()`](super::RuleSet::from_dsl). The condition
-/// is `None` until set with [`RuleBuilder::when()`](super::ruleset::RuleBuilder::when).
+/// is `None` until set via the builder's `.when()` method.
 #[derive(Debug, Clone)]
 pub struct Rule {
+    /// The rule's unique name.
     pub name: String,
+    /// The boolean condition expression, or `None` if not yet set.
     pub condition: Option<Expr>,
 }
 
@@ -31,6 +33,8 @@ pub(crate) struct CompiledRule {
 /// `allowed` terminal at priority 10).
 #[derive(Debug, Clone)]
 pub struct Terminal {
+    /// The name of the rule this terminal references.
     pub rule_name: String,
+    /// Priority for evaluation ordering; lower values are checked first.
     pub priority: u32,
 }

@@ -2,6 +2,7 @@
 name = "ooroo"
 version = "0.1.0"
 edition = "2021"
+authors = ["Devin Ward <devissquared@gmail.com>"]
 description = "A fast, compiled rule engine with a text-based DSL"
 license = "MIT"
 repository = "https://github.com/ooroo-rs/ooroo"

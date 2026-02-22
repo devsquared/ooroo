@@ -1,29 +1,57 @@
 use thiserror::Error;
 
+/// Errors produced during ruleset compilation.
 #[derive(Debug, Error)]
 pub enum CompileError {
+    /// A rule references another rule that does not exist.
     #[error("undefined rule reference '{reference}' in rule '{rule}'")]
-    UndefinedRuleRef { rule: String, reference: String },
+    UndefinedRuleRef {
+        /// The rule containing the bad reference.
+        rule: String,
+        /// The referenced rule name that was not found.
+        reference: String,
+    },
 
+    /// A cycle was detected in rule dependencies.
     #[error("cyclic dependency detected: {}", path.join(" -> "))]
-    CyclicDependency { path: Vec<String> },
+    CyclicDependency {
+        /// The chain of rule names forming the cycle.
+        path: Vec<String>,
+    },
 
+    /// A terminal references a rule that does not exist.
     #[error("terminal '{terminal}' references undefined rule")]
-    UndefinedTerminal { terminal: String },
+    UndefinedTerminal {
+        /// The terminal name with no matching rule.
+        terminal: String,
+    },
 
+    /// Two rules share the same name.
     #[error("duplicate rule name '{name}'")]
-    DuplicateRule { name: String },
+    DuplicateRule {
+        /// The duplicated rule name.
+        name: String,
+    },
 
+    /// No terminal rules were defined.
     #[error("no terminal rules defined; at least one terminal is required")]
     NoTerminals,
 
+    /// A rule was defined without a condition expression.
     #[error("rule '{rule}' has no condition; the .when() call is required")]
-    MissingCondition { rule: String },
+    MissingCondition {
+        /// The rule missing a condition.
+        rule: String,
+    },
 
+    /// The same rule was registered as a terminal more than once.
     #[error(
         "duplicate terminal '{terminal}'; each rule may only be registered as a terminal once"
     )]
-    DuplicateTerminal { terminal: String },
+    DuplicateTerminal {
+        /// The duplicated terminal name.
+        terminal: String,
+    },
 }
 
 #[cfg(test)]

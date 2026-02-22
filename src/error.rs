@@ -9,12 +9,15 @@ use crate::CompileError;
 /// and [`RuleSet::from_file()`](crate::RuleSet::from_file).
 #[derive(Debug, Error)]
 pub enum OorooError {
+    /// A parse error from the DSL parser.
     #[error(transparent)]
     Parse(#[from] ParseError),
 
+    /// A compilation error from ruleset validation.
     #[error(transparent)]
     Compile(#[from] CompileError),
 
+    /// An I/O error (e.g., reading a DSL file).
     #[error(transparent)]
     Io(#[from] std::io::Error),
 

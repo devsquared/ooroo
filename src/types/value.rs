@@ -3,11 +3,16 @@ use std::fmt;
 
 use super::expr::CompareOp;
 
+/// Supported value types for rule evaluation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
+    /// A 64-bit signed integer.
     Int(i64),
+    /// A 64-bit floating-point number.
     Float(f64),
+    /// A boolean value.
     Bool(bool),
+    /// A UTF-8 string.
     String(String),
 }
 

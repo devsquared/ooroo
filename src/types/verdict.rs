@@ -1,5 +1,8 @@
 use std::fmt;
 
+/// The result of evaluating a [`RuleSet`](super::RuleSet) against a context.
+///
+/// Contains the name of the matched terminal and whether it evaluated to `true`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct Verdict {
@@ -14,6 +17,7 @@ impl fmt::Display for Verdict {
 }
 
 impl Verdict {
+    /// Create a new verdict for the given terminal name and result.
     pub fn new(terminal: impl Into<String>, result: bool) -> Self {
         Self {
             terminal: terminal.into(),
@@ -21,11 +25,13 @@ impl Verdict {
         }
     }
 
+    /// The name of the terminal that matched.
     #[must_use]
     pub fn terminal(&self) -> &str {
         &self.terminal
     }
 
+    /// Whether the terminal's rule evaluated to `true`.
     #[must_use]
     pub fn result(&self) -> bool {
         self.result
