@@ -17,4 +17,12 @@ pub enum OorooError {
 
     #[error(transparent)]
     Io(#[from] std::io::Error),
+
+    #[cfg(feature = "binary-cache")]
+    #[error(transparent)]
+    Serialize(#[from] crate::serial::SerializeError),
+
+    #[cfg(feature = "binary-cache")]
+    #[error(transparent)]
+    Deserialize(#[from] crate::serial::DeserializeError),
 }
