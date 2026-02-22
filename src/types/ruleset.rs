@@ -230,6 +230,65 @@ impl RuleSet {
     }
 }
 
+#[cfg(feature = "binary-cache")]
+impl RuleSet {
+    /// Serialize this compiled ruleset to a byte vector.
+    ///
+    /// The optional `source_text` is hashed (BLAKE3) and embedded in the
+    /// payload metadata. Callers can use this to detect when the original
+    /// source has changed and the cache should be rebuilt.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SerializeError`](crate::serial::SerializeError) if encoding fails.
+    pub fn to_bytes(
+        &self,
+        source_text: Option<&str>,
+    ) -> Result<Vec<u8>, crate::serial::SerializeError> {
+        crate::serial::encode(self, source_text)
+    }
+
+    /// Deserialize a compiled ruleset from a byte slice previously
+    /// produced by [`to_bytes`](Self::to_bytes).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DeserializeError`](crate::serial::DeserializeError) on
+    /// format, integrity, or validation failure.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, crate::serial::DeserializeError> {
+        crate::serial::decode(bytes)
+    }
+
+    /// Serialize this compiled ruleset and write it to a file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SerializeError`](crate::serial::SerializeError) on
+    /// encoding or I/O failure.
+    pub fn to_binary_file(
+        &self,
+        path: impl AsRef<std::path::Path>,
+        source_text: Option<&str>,
+    ) -> Result<(), crate::serial::SerializeError> {
+        let bytes = self.to_bytes(source_text)?;
+        std::fs::write(path, bytes)?;
+        Ok(())
+    }
+
+    /// Read a file and deserialize the compiled ruleset it contains.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DeserializeError`](crate::serial::DeserializeError) on
+    /// I/O, format, integrity, or validation failure.
+    pub fn from_binary_file(
+        path: impl AsRef<std::path::Path>,
+    ) -> Result<Self, crate::serial::DeserializeError> {
+        let bytes = std::fs::read(path)?;
+        Self::from_bytes(&bytes)
+    }
+}
+
 fn collect_rule_ref_indices(expr: &CompiledExpr, out: &mut Vec<usize>) {
     match expr {
         CompiledExpr::RuleRef(idx) => out.push(*idx),
