@@ -2,6 +2,9 @@ use std::collections::HashMap;
 
 use super::Value;
 
+/// Evaluation context mapping dot-separated field paths to [`Value`]s.
+///
+/// Supports nested paths like `"user.profile.age"`.
 #[derive(Debug, Clone, Default)]
 pub struct Context {
     data: HashMap<String, ContextValue>,
@@ -14,6 +17,7 @@ enum ContextValue {
 }
 
 impl Context {
+    /// Create an empty context.
     #[must_use]
     pub fn new() -> Self {
         Self::default()

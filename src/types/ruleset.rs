@@ -41,6 +41,7 @@ pub struct RuleBuilder {
 }
 
 impl RuleSetBuilder {
+    /// Create a new, empty builder.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -163,8 +164,7 @@ impl RuleSet {
 
     /// Parse a DSL string and compile into a `RuleSet`.
     ///
-    /// This is a convenience method combining [`parse`](crate::parse::parse)
-    /// and [`RuleSetBuilder::compile()`].
+    /// This is a convenience method that parses and compiles in one step.
     ///
     /// # Errors
     ///

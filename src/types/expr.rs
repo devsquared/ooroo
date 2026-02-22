@@ -6,26 +6,40 @@ use super::Value;
 /// Comparison operators supported in rule expressions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompareOp {
+    /// Equal (`==`).
     Eq,
+    /// Not equal (`!=`).
     Neq,
+    /// Greater than (`>`).
     Gt,
+    /// Greater than or equal (`>=`).
     Gte,
+    /// Less than (`<`).
     Lt,
+    /// Less than or equal (`<=`).
     Lte,
 }
 
 /// User-facing expression AST. Field paths and rule names are strings.
-/// Transformed into [`CompiledExpr`] during compilation.
+/// Transformed into a compiled representation during compilation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
+    /// A field comparison (e.g., `user.age >= 18`).
     Compare {
+        /// Dot-separated field path.
         field: String,
+        /// The comparison operator.
         op: CompareOp,
+        /// The value to compare against.
         value: Value,
     },
+    /// Logical AND of two expressions.
     And(Box<Expr>, Box<Expr>),
+    /// Logical OR of two expressions.
     Or(Box<Expr>, Box<Expr>),
+    /// Logical NOT of an expression.
     Not(Box<Expr>),
+    /// A reference to another rule by name.
     RuleRef(String),
 }
 
@@ -71,11 +85,13 @@ impl fmt::Display for Expr {
 }
 
 impl Expr {
+    /// Combine two expressions with logical AND.
     #[must_use]
     pub fn and(self, other: Expr) -> Expr {
         Expr::And(Box::new(self), Box::new(other))
     }
 
+    /// Combine two expressions with logical OR.
     #[must_use]
     pub fn or(self, other: Expr) -> Expr {
         Expr::Or(Box::new(self), Box::new(other))
@@ -98,6 +114,7 @@ pub struct FieldExpr {
 }
 
 impl FieldExpr {
+    /// Build an equality comparison (`==`).
     #[must_use]
     pub fn eq(self, value: impl Into<Value>) -> Expr {
         Expr::Compare {
@@ -107,6 +124,7 @@ impl FieldExpr {
         }
     }
 
+    /// Build a not-equal comparison (`!=`).
     #[must_use]
     pub fn neq(self, value: impl Into<Value>) -> Expr {
         Expr::Compare {
@@ -116,6 +134,7 @@ impl FieldExpr {
         }
     }
 
+    /// Build a greater-than comparison (`>`).
     #[must_use]
     pub fn gt(self, value: impl Into<Value>) -> Expr {
         Expr::Compare {
@@ -125,6 +144,7 @@ impl FieldExpr {
         }
     }
 
+    /// Build a greater-than-or-equal comparison (`>=`).
     #[must_use]
     pub fn gte(self, value: impl Into<Value>) -> Expr {
         Expr::Compare {
@@ -134,6 +154,7 @@ impl FieldExpr {
         }
     }
 
+    /// Build a less-than comparison (`<`).
     #[must_use]
     pub fn lt(self, value: impl Into<Value>) -> Expr {
         Expr::Compare {
@@ -143,6 +164,7 @@ impl FieldExpr {
         }
     }
 
+    /// Build a less-than-or-equal comparison (`<=`).
     #[must_use]
     pub fn lte(self, value: impl Into<Value>) -> Expr {
         Expr::Compare {
@@ -153,6 +175,7 @@ impl FieldExpr {
     }
 }
 
+/// Create a [`FieldExpr`] for building field comparison expressions.
 #[must_use]
 pub fn field(path: &str) -> FieldExpr {
     FieldExpr {
@@ -160,6 +183,7 @@ pub fn field(path: &str) -> FieldExpr {
     }
 }
 
+/// Create an [`Expr`] that references another rule by name.
 #[must_use]
 pub fn rule_ref(name: &str) -> Expr {
     Expr::RuleRef(name.to_owned())
