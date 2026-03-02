@@ -134,10 +134,97 @@ fn primary(input: &mut &str) -> ModalResult<Expr> {
         .parse_next(input)
 }
 
+fn value_list(input: &mut &str) -> ModalResult<Vec<Value>> {
+    ws.parse_next(input)?;
+    '['.parse_next(input)?;
+    ws.parse_next(input)?;
+    let first = value.parse_next(input)?;
+    let mut values = vec![first];
+    loop {
+        ws.parse_next(input)?;
+        if opt(']').parse_next(input)?.is_some() {
+            break;
+        }
+        ','.parse_next(input)?;
+        let v = cut_err(value).parse_next(input)?;
+        values.push(v);
+    }
+    Ok(values)
+}
+
 fn comparison_or_rule_ref(input: &mut &str) -> ModalResult<Expr> {
     let name = ident.parse_next(input)?;
     let checkpoint = input.checkpoint();
     ws.parse_next(input)?;
+
+    // IS NOT NULL / IS NULL
+    if opt(alt(("IS", "is"))).parse_next(input)?.is_some() {
+        ws.parse_next(input)?;
+        if opt(alt(("NOT", "not"))).parse_next(input)?.is_some() {
+            ws.parse_next(input)?;
+            cut_err(alt(("NULL", "null"))).parse_next(input)?;
+            return Ok(Expr::IsNotNull(name.to_owned()));
+        }
+        cut_err(alt(("NULL", "null"))).parse_next(input)?;
+        return Ok(Expr::IsNull(name.to_owned()));
+    }
+
+    // NOT IN / NOT LIKE
+    if opt(alt(("NOT", "not"))).parse_next(input)?.is_some() {
+        ws.parse_next(input)?;
+        if opt(alt(("IN", "in"))).parse_next(input)?.is_some() {
+            let values = cut_err(value_list).parse_next(input)?;
+            return Ok(Expr::NotIn {
+                field: name.to_owned(),
+                values,
+            });
+        }
+        // Must be NOT LIKE
+        cut_err(alt(("LIKE", "like"))).parse_next(input)?;
+        ws.parse_next(input)?;
+        let pattern = cut_err(string_literal).parse_next(input)?;
+        return Ok(Expr::NotLike {
+            field: name.to_owned(),
+            pattern,
+        });
+    }
+
+    // IN
+    if opt(alt(("IN", "in"))).parse_next(input)?.is_some() {
+        let values = cut_err(value_list).parse_next(input)?;
+        return Ok(Expr::In {
+            field: name.to_owned(),
+            values,
+        });
+    }
+
+    // LIKE
+    if opt(alt(("LIKE", "like"))).parse_next(input)?.is_some() {
+        ws.parse_next(input)?;
+        let pattern = cut_err(string_literal).parse_next(input)?;
+        return Ok(Expr::Like {
+            field: name.to_owned(),
+            pattern,
+        });
+    }
+
+    // BETWEEN
+    if opt(alt(("BETWEEN", "between")))
+        .parse_next(input)?
+        .is_some()
+    {
+        let low = cut_err(value).parse_next(input)?;
+        ws.parse_next(input)?;
+        cut_err(alt(("AND", "and"))).parse_next(input)?;
+        let high = cut_err(value).parse_next(input)?;
+        return Ok(Expr::Between {
+            field: name.to_owned(),
+            low,
+            high,
+        });
+    }
+
+    // Standard comparison operators
     if let Ok(op) = compare_op.parse_next(input) {
         let val = cut_err(value).parse_next(input)?;
         Ok(Expr::Compare {
@@ -404,6 +491,143 @@ mod tests {
         let result = parse("rule r:\n    NOT a AND (b OR c) AND x >= 10").unwrap();
         let cond = result.rules[0].condition.as_ref().unwrap();
         assert!(matches!(cond, Expr::And(_, _)));
+    }
+
+    #[test]
+    fn parse_in_expression() {
+        let result = parse("rule r:\n    country IN [\"US\", \"CA\", \"GB\"]").unwrap();
+        match result.rules[0].condition.as_ref().unwrap() {
+            Expr::In { field, values } => {
+                assert_eq!(field, "country");
+                assert_eq!(values.len(), 3);
+                assert_eq!(values[0], Value::String("US".into()));
+                assert_eq!(values[1], Value::String("CA".into()));
+                assert_eq!(values[2], Value::String("GB".into()));
+            }
+            other => panic!("expected In, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_not_in_expression() {
+        let result = parse("rule r:\n    status NOT IN [\"banned\", \"suspended\"]").unwrap();
+        match result.rules[0].condition.as_ref().unwrap() {
+            Expr::NotIn { field, values } => {
+                assert_eq!(field, "status");
+                assert_eq!(values.len(), 2);
+            }
+            other => panic!("expected NotIn, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_between_expression() {
+        let result = parse("rule r:\n    user.age BETWEEN 18 AND 65").unwrap();
+        match result.rules[0].condition.as_ref().unwrap() {
+            Expr::Between { field, low, high } => {
+                assert_eq!(field, "user.age");
+                assert_eq!(*low, Value::Int(18));
+                assert_eq!(*high, Value::Int(65));
+            }
+            other => panic!("expected Between, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_like_expression() {
+        let result = parse("rule r:\n    email LIKE \"%@gmail.com\"").unwrap();
+        match result.rules[0].condition.as_ref().unwrap() {
+            Expr::Like { field, pattern } => {
+                assert_eq!(field, "email");
+                assert_eq!(pattern, "%@gmail.com");
+            }
+            other => panic!("expected Like, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_not_like_expression() {
+        let result = parse("rule r:\n    email NOT LIKE \"%@test.%\"").unwrap();
+        match result.rules[0].condition.as_ref().unwrap() {
+            Expr::NotLike { field, pattern } => {
+                assert_eq!(field, "email");
+                assert_eq!(pattern, "%@test.%");
+            }
+            other => panic!("expected NotLike, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_is_null_expression() {
+        let result = parse("rule r:\n    middle_name IS NULL").unwrap();
+        match result.rules[0].condition.as_ref().unwrap() {
+            Expr::IsNull(field) => assert_eq!(field, "middle_name"),
+            other => panic!("expected IsNull, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_is_not_null_expression() {
+        let result = parse("rule r:\n    middle_name IS NOT NULL").unwrap();
+        match result.rules[0].condition.as_ref().unwrap() {
+            Expr::IsNotNull(field) => assert_eq!(field, "middle_name"),
+            other => panic!("expected IsNotNull, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_in_with_integers() {
+        let result = parse("rule r:\n    code IN [1, 2, 3]").unwrap();
+        match result.rules[0].condition.as_ref().unwrap() {
+            Expr::In { values, .. } => {
+                assert_eq!(values, &[Value::Int(1), Value::Int(2), Value::Int(3)]);
+            }
+            other => panic!("expected In, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_between_with_floats() {
+        let result = parse("rule r:\n    score BETWEEN 0.0 AND 100.0").unwrap();
+        match result.rules[0].condition.as_ref().unwrap() {
+            Expr::Between { low, high, .. } => {
+                assert_eq!(*low, Value::Float(0.0));
+                assert_eq!(*high, Value::Float(100.0));
+            }
+            other => panic!("expected Between, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_case_insensitive_keywords() {
+        let result = parse("rule r:\n    x in [1, 2]").unwrap();
+        assert!(matches!(
+            result.rules[0].condition.as_ref().unwrap(),
+            Expr::In { .. }
+        ));
+
+        let result = parse("rule r:\n    x between 1 and 10").unwrap();
+        assert!(matches!(
+            result.rules[0].condition.as_ref().unwrap(),
+            Expr::Between { .. }
+        ));
+
+        let result = parse("rule r:\n    x is null").unwrap();
+        assert!(matches!(
+            result.rules[0].condition.as_ref().unwrap(),
+            Expr::IsNull(_)
+        ));
+    }
+
+    #[test]
+    fn parse_new_ops_combined_with_and_or() {
+        let result =
+            parse("rule r:\n    country IN [\"US\", \"CA\"] AND user.age BETWEEN 18 AND 65")
+                .unwrap();
+        assert!(matches!(
+            result.rules[0].condition.as_ref().unwrap(),
+            Expr::And(_, _)
+        ));
     }
 
     #[test]

@@ -14,3 +14,17 @@ rule can_proceed (priority 10):
 
 rule banned (priority 0):
     user.banned == true
+
+# --- SQL-style operators ---
+
+rule valid_country:
+    user.country IN ["US", "CA", "GB", "AU"]
+
+rule working_age:
+    user.age BETWEEN 18 AND 65
+
+rule gmail_user:
+    user.email LIKE "%@gmail.com"
+
+rule has_profile:
+    user.profile IS NOT NULL

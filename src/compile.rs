@@ -143,7 +143,14 @@ fn collect_and_check_refs(
             Ok(())
         }
         Expr::Not(inner) => collect_and_check_refs(inner, rule_name, rule_map),
-        Expr::Compare { .. } => Ok(()),
+        Expr::Compare { .. }
+        | Expr::In { .. }
+        | Expr::NotIn { .. }
+        | Expr::Between { .. }
+        | Expr::Like { .. }
+        | Expr::NotLike { .. }
+        | Expr::IsNull(_)
+        | Expr::IsNotNull(_) => Ok(()),
     }
 }
 
@@ -220,7 +227,14 @@ fn collect_rule_refs_inner(expr: &Expr, refs: &mut Vec<String>) {
             collect_rule_refs_inner(b, refs);
         }
         Expr::Not(inner) => collect_rule_refs_inner(inner, refs),
-        Expr::Compare { .. } => {}
+        Expr::Compare { .. }
+        | Expr::In { .. }
+        | Expr::NotIn { .. }
+        | Expr::Between { .. }
+        | Expr::Like { .. }
+        | Expr::NotLike { .. }
+        | Expr::IsNull(_)
+        | Expr::IsNotNull(_) => {}
     }
 }
 
@@ -300,7 +314,14 @@ fn dfs<'a>(
 
 fn collect_fields(expr: &Expr, registry: &mut FieldRegistry) {
     match expr {
-        Expr::Compare { field, .. } => {
+        Expr::Compare { field, .. }
+        | Expr::In { field, .. }
+        | Expr::NotIn { field, .. }
+        | Expr::Between { field, .. }
+        | Expr::Like { field, .. }
+        | Expr::NotLike { field, .. }
+        | Expr::IsNull(field)
+        | Expr::IsNotNull(field) => {
             registry.register(field);
         }
         Expr::And(a, b) | Expr::Or(a, b) => {
@@ -340,6 +361,47 @@ fn compile_expr(
             *rule_indices
                 .get(name)
                 .expect("rule reference should be validated"),
+        ),
+        Expr::In { field, values } => CompiledExpr::In {
+            field_index: field_registry
+                .get(field)
+                .expect("field should be registered"),
+            values: values.clone(),
+        },
+        Expr::NotIn { field, values } => CompiledExpr::NotIn {
+            field_index: field_registry
+                .get(field)
+                .expect("field should be registered"),
+            values: values.clone(),
+        },
+        Expr::Between { field, low, high } => CompiledExpr::Between {
+            field_index: field_registry
+                .get(field)
+                .expect("field should be registered"),
+            low: low.clone(),
+            high: high.clone(),
+        },
+        Expr::Like { field, pattern } => CompiledExpr::Like {
+            field_index: field_registry
+                .get(field)
+                .expect("field should be registered"),
+            pattern: pattern.clone(),
+        },
+        Expr::NotLike { field, pattern } => CompiledExpr::NotLike {
+            field_index: field_registry
+                .get(field)
+                .expect("field should be registered"),
+            pattern: pattern.clone(),
+        },
+        Expr::IsNull(field) => CompiledExpr::IsNull(
+            field_registry
+                .get(field)
+                .expect("field should be registered"),
+        ),
+        Expr::IsNotNull(field) => CompiledExpr::IsNotNull(
+            field_registry
+                .get(field)
+                .expect("field should be registered"),
         ),
     }
 }

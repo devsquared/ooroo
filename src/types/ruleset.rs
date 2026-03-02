@@ -297,7 +297,14 @@ fn collect_rule_ref_indices(expr: &CompiledExpr, out: &mut Vec<usize>) {
             collect_rule_ref_indices(b, out);
         }
         CompiledExpr::Not(inner) => collect_rule_ref_indices(inner, out),
-        CompiledExpr::Compare { .. } => {}
+        CompiledExpr::Compare { .. }
+        | CompiledExpr::In { .. }
+        | CompiledExpr::NotIn { .. }
+        | CompiledExpr::Between { .. }
+        | CompiledExpr::Like { .. }
+        | CompiledExpr::NotLike { .. }
+        | CompiledExpr::IsNull(_)
+        | CompiledExpr::IsNotNull(_) => {}
     }
 }
 

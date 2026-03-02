@@ -35,7 +35,7 @@ use crate::types::{
 // ---------------------------------------------------------------------------
 
 const MAGIC: &[u8; 4] = b"OORO";
-const FORMAT_VERSION: u16 = 1;
+const FORMAT_VERSION: u16 = 2;
 const ENGINE_VERSION: u16 = 1;
 const HEADER_SIZE: usize = 32;
 
@@ -116,6 +116,29 @@ enum SerializedExpr {
     And(Vec<SerializedExpr>),
     Or(Vec<SerializedExpr>),
     Not(Box<SerializedExpr>),
+    In {
+        field_slot: usize,
+        values: Vec<SerializedValue>,
+    },
+    NotIn {
+        field_slot: usize,
+        values: Vec<SerializedValue>,
+    },
+    Between {
+        field_slot: usize,
+        low: SerializedValue,
+        high: SerializedValue,
+    },
+    Like {
+        field_slot: usize,
+        pattern: String,
+    },
+    NotLike {
+        field_slot: usize,
+        pattern: String,
+    },
+    IsNull(usize),
+    IsNotNull(usize),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -225,6 +248,45 @@ fn flatten_expr(expr: &CompiledExpr) -> SerializedExpr {
             value: serialize_value(value),
         },
         CompiledExpr::RuleRef(idx) => SerializedExpr::RuleRef(*idx),
+        CompiledExpr::In {
+            field_index,
+            values,
+        } => SerializedExpr::In {
+            field_slot: *field_index,
+            values: values.iter().map(serialize_value).collect(),
+        },
+        CompiledExpr::NotIn {
+            field_index,
+            values,
+        } => SerializedExpr::NotIn {
+            field_slot: *field_index,
+            values: values.iter().map(serialize_value).collect(),
+        },
+        CompiledExpr::Between {
+            field_index,
+            low,
+            high,
+        } => SerializedExpr::Between {
+            field_slot: *field_index,
+            low: serialize_value(low),
+            high: serialize_value(high),
+        },
+        CompiledExpr::Like {
+            field_index,
+            pattern,
+        } => SerializedExpr::Like {
+            field_slot: *field_index,
+            pattern: pattern.clone(),
+        },
+        CompiledExpr::NotLike {
+            field_index,
+            pattern,
+        } => SerializedExpr::NotLike {
+            field_slot: *field_index,
+            pattern: pattern.clone(),
+        },
+        CompiledExpr::IsNull(idx) => SerializedExpr::IsNull(*idx),
+        CompiledExpr::IsNotNull(idx) => SerializedExpr::IsNotNull(*idx),
     }
 }
 
@@ -291,6 +353,39 @@ fn unflatten_expr(expr: SerializedExpr) -> Result<CompiledExpr, DeserializeError
             value: deserialize_value(value),
         }),
         SerializedExpr::RuleRef(idx) => Ok(CompiledExpr::RuleRef(idx)),
+        SerializedExpr::In { field_slot, values } => Ok(CompiledExpr::In {
+            field_index: field_slot,
+            values: values.into_iter().map(deserialize_value).collect(),
+        }),
+        SerializedExpr::NotIn { field_slot, values } => Ok(CompiledExpr::NotIn {
+            field_index: field_slot,
+            values: values.into_iter().map(deserialize_value).collect(),
+        }),
+        SerializedExpr::Between {
+            field_slot,
+            low,
+            high,
+        } => Ok(CompiledExpr::Between {
+            field_index: field_slot,
+            low: deserialize_value(low),
+            high: deserialize_value(high),
+        }),
+        SerializedExpr::Like {
+            field_slot,
+            pattern,
+        } => Ok(CompiledExpr::Like {
+            field_index: field_slot,
+            pattern,
+        }),
+        SerializedExpr::NotLike {
+            field_slot,
+            pattern,
+        } => Ok(CompiledExpr::NotLike {
+            field_index: field_slot,
+            pattern,
+        }),
+        SerializedExpr::IsNull(idx) => Ok(CompiledExpr::IsNull(idx)),
+        SerializedExpr::IsNotNull(idx) => Ok(CompiledExpr::IsNotNull(idx)),
     }
 }
 
@@ -462,10 +557,23 @@ fn validate_expr(
     current_rule_index: usize,
 ) -> Result<(), DeserializeError> {
     match expr {
-        SerializedExpr::FieldCmp { field_slot, .. } => {
+        SerializedExpr::FieldCmp { field_slot, .. }
+        | SerializedExpr::In { field_slot, .. }
+        | SerializedExpr::NotIn { field_slot, .. }
+        | SerializedExpr::Between { field_slot, .. }
+        | SerializedExpr::Like { field_slot, .. }
+        | SerializedExpr::NotLike { field_slot, .. } => {
             if *field_slot >= field_count {
                 return Err(DeserializeError::Validation(format!(
                     "field slot {field_slot} out of bounds (max {field_count})"
+                )));
+            }
+            Ok(())
+        }
+        SerializedExpr::IsNull(idx) | SerializedExpr::IsNotNull(idx) => {
+            if *idx >= field_count {
+                return Err(DeserializeError::Validation(format!(
+                    "field slot {idx} out of bounds (max {field_count})"
                 )));
             }
             Ok(())

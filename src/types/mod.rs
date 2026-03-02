@@ -6,7 +6,7 @@ mod field_registry;
 mod indexed_context;
 mod rule;
 mod ruleset;
-mod value;
+pub(crate) mod value;
 mod verdict;
 
 pub use context::Context;
