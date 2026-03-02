@@ -1,6 +1,6 @@
 [package]
 name = "ooroo"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Devin Ward <devissquared@gmail.com>"]
 description = "A fast, compiled rule engine with a text-based DSL"
