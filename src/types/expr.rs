@@ -41,6 +41,47 @@ pub enum Expr {
     Not(Box<Expr>),
     /// A reference to another rule by name.
     RuleRef(String),
+    /// Membership test: field value must be in the given list.
+    In {
+        /// Dot-separated field path.
+        field: String,
+        /// Candidate values.
+        values: Vec<Value>,
+    },
+    /// Negated membership test: field value must not be in the given list.
+    NotIn {
+        /// Dot-separated field path.
+        field: String,
+        /// Candidate values.
+        values: Vec<Value>,
+    },
+    /// Range test: field value must be between low and high (inclusive).
+    Between {
+        /// Dot-separated field path.
+        field: String,
+        /// Lower bound (inclusive).
+        low: Value,
+        /// Upper bound (inclusive).
+        high: Value,
+    },
+    /// SQL LIKE pattern match (`%` = any sequence, `_` = one character).
+    Like {
+        /// Dot-separated field path.
+        field: String,
+        /// The LIKE pattern.
+        pattern: String,
+    },
+    /// Negated SQL LIKE pattern match.
+    NotLike {
+        /// Dot-separated field path.
+        field: String,
+        /// The LIKE pattern.
+        pattern: String,
+    },
+    /// True when the field is absent or has no value.
+    IsNull(String),
+    /// True when the field is present and has a value.
+    IsNotNull(String),
 }
 
 /// Compiled expression with all string lookups resolved to integer indices.
@@ -57,6 +98,29 @@ pub(crate) enum CompiledExpr {
     Or(Box<CompiledExpr>, Box<CompiledExpr>),
     Not(Box<CompiledExpr>),
     RuleRef(usize),
+    In {
+        field_index: usize,
+        values: Vec<Value>,
+    },
+    NotIn {
+        field_index: usize,
+        values: Vec<Value>,
+    },
+    Between {
+        field_index: usize,
+        low: Value,
+        high: Value,
+    },
+    Like {
+        field_index: usize,
+        pattern: String,
+    },
+    NotLike {
+        field_index: usize,
+        pattern: String,
+    },
+    IsNull(usize),
+    IsNotNull(usize),
 }
 
 impl fmt::Display for CompareOp {
@@ -80,6 +144,21 @@ impl fmt::Display for Expr {
             Expr::Or(a, b) => write!(f, "({a} OR {b})"),
             Expr::Not(inner) => write!(f, "(NOT {inner})"),
             Expr::RuleRef(name) => write!(f, "{name}"),
+            Expr::In { field, values } => {
+                let vals: Vec<String> = values.iter().map(ToString::to_string).collect();
+                write!(f, "({field} IN [{}])", vals.join(", "))
+            }
+            Expr::NotIn { field, values } => {
+                let vals: Vec<String> = values.iter().map(ToString::to_string).collect();
+                write!(f, "({field} NOT IN [{}])", vals.join(", "))
+            }
+            Expr::Between { field, low, high } => {
+                write!(f, "({field} BETWEEN {low} AND {high})")
+            }
+            Expr::Like { field, pattern } => write!(f, "({field} LIKE \"{pattern}\")"),
+            Expr::NotLike { field, pattern } => write!(f, "({field} NOT LIKE \"{pattern}\")"),
+            Expr::IsNull(field) => write!(f, "({field} IS NULL)"),
+            Expr::IsNotNull(field) => write!(f, "({field} IS NOT NULL)"),
         }
     }
 }
@@ -172,6 +251,72 @@ impl FieldExpr {
             op: CompareOp::Lte,
             value: value.into(),
         }
+    }
+
+    /// Build an `IN` membership test.
+    #[must_use]
+    pub fn is_in<I, V>(self, values: I) -> Expr
+    where
+        I: IntoIterator<Item = V>,
+        V: Into<Value>,
+    {
+        Expr::In {
+            field: self.path,
+            values: values.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    /// Build a `NOT IN` membership test.
+    #[must_use]
+    pub fn not_in<I, V>(self, values: I) -> Expr
+    where
+        I: IntoIterator<Item = V>,
+        V: Into<Value>,
+    {
+        Expr::NotIn {
+            field: self.path,
+            values: values.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    /// Build a `BETWEEN` range test (inclusive on both ends).
+    #[must_use]
+    pub fn between(self, low: impl Into<Value>, high: impl Into<Value>) -> Expr {
+        Expr::Between {
+            field: self.path,
+            low: low.into(),
+            high: high.into(),
+        }
+    }
+
+    /// Build a `LIKE` pattern match.
+    #[must_use]
+    pub fn like(self, pattern: impl Into<String>) -> Expr {
+        Expr::Like {
+            field: self.path,
+            pattern: pattern.into(),
+        }
+    }
+
+    /// Build a `NOT LIKE` pattern match.
+    #[must_use]
+    pub fn not_like(self, pattern: impl Into<String>) -> Expr {
+        Expr::NotLike {
+            field: self.path,
+            pattern: pattern.into(),
+        }
+    }
+
+    /// Build an `IS NULL` test (true when field is absent).
+    #[must_use]
+    pub fn is_null(self) -> Expr {
+        Expr::IsNull(self.path)
+    }
+
+    /// Build an `IS NOT NULL` test (true when field is present).
+    #[must_use]
+    pub fn is_not_null(self) -> Expr {
+        Expr::IsNotNull(self.path)
     }
 }
 
@@ -289,6 +434,86 @@ mod tests {
             }
             other => panic!("expected outer And, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn field_is_in() {
+        let expr = field("country").is_in(["US", "CA", "GB"]);
+        assert_eq!(
+            expr,
+            Expr::In {
+                field: "country".to_owned(),
+                values: vec![
+                    Value::String("US".to_owned()),
+                    Value::String("CA".to_owned()),
+                    Value::String("GB".to_owned()),
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn field_not_in() {
+        let expr = field("status").not_in(["banned", "suspended"]);
+        assert_eq!(
+            expr,
+            Expr::NotIn {
+                field: "status".to_owned(),
+                values: vec![
+                    Value::String("banned".to_owned()),
+                    Value::String("suspended".to_owned()),
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn field_between() {
+        let expr = field("age").between(18_i64, 65_i64);
+        assert_eq!(
+            expr,
+            Expr::Between {
+                field: "age".to_owned(),
+                low: Value::Int(18),
+                high: Value::Int(65),
+            }
+        );
+    }
+
+    #[test]
+    fn field_like() {
+        let expr = field("email").like("%@gmail.com");
+        assert_eq!(
+            expr,
+            Expr::Like {
+                field: "email".to_owned(),
+                pattern: "%@gmail.com".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn field_not_like() {
+        let expr = field("email").not_like("%@test.%");
+        assert_eq!(
+            expr,
+            Expr::NotLike {
+                field: "email".to_owned(),
+                pattern: "%@test.%".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn field_is_null() {
+        let expr = field("middle_name").is_null();
+        assert_eq!(expr, Expr::IsNull("middle_name".to_owned()));
+    }
+
+    #[test]
+    fn field_is_not_null() {
+        let expr = field("middle_name").is_not_null();
+        assert_eq!(expr, Expr::IsNotNull("middle_name".to_owned()));
     }
 
     #[test]

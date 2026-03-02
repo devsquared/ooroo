@@ -56,6 +56,51 @@ impl Value {
     }
 }
 
+/// SQL LIKE pattern matching.
+///
+/// `%` matches zero or more characters, `_` matches exactly one character.
+/// All other characters are literal. Case-sensitive.
+pub(crate) fn like_match(value: &str, pattern: &str) -> bool {
+    let v = value.as_bytes();
+    let p = pattern.as_bytes();
+    like_match_inner(v, p)
+}
+
+fn like_match_inner(v: &[u8], p: &[u8]) -> bool {
+    let mut vi = 0;
+    let mut pi = 0;
+    // Track the last '%' position for backtracking
+    let mut last_percent_pat = None::<usize>;
+    let mut last_percent_val = 0;
+
+    while vi < v.len() {
+        if pi < p.len() && p[pi] == b'_' {
+            vi += 1;
+            pi += 1;
+        } else if pi < p.len() && p[pi] == b'%' {
+            last_percent_pat = Some(pi);
+            last_percent_val = vi;
+            pi += 1;
+        } else if pi < p.len() && p[pi] == v[vi] {
+            vi += 1;
+            pi += 1;
+        } else if let Some(wp) = last_percent_pat {
+            last_percent_val += 1;
+            vi = last_percent_val;
+            pi = wp + 1;
+        } else {
+            return false;
+        }
+    }
+
+    // Consume trailing '%' in pattern
+    while pi < p.len() && p[pi] == b'%' {
+        pi += 1;
+    }
+
+    pi == p.len()
+}
+
 impl From<i64> for Value {
     fn from(v: i64) -> Self {
         Value::Int(v)
@@ -188,6 +233,51 @@ mod tests {
         assert_eq!(a.compare(CompareOp::Lt, &b), Some(true));
         assert_eq!(a.compare(CompareOp::Eq, &b), Some(false));
         assert_eq!(a.compare(CompareOp::Eq, &a), Some(true));
+    }
+
+    #[test]
+    fn like_exact_match() {
+        assert!(like_match("hello", "hello"));
+        assert!(!like_match("hello", "world"));
+    }
+
+    #[test]
+    fn like_percent_wildcard() {
+        assert!(like_match("hello world", "%world"));
+        assert!(like_match("hello world", "hello%"));
+        assert!(like_match("hello world", "%lo wo%"));
+        assert!(like_match("hello", "%"));
+        assert!(like_match("", "%"));
+    }
+
+    #[test]
+    fn like_underscore_wildcard() {
+        assert!(like_match("cat", "c_t"));
+        assert!(!like_match("cart", "c_t"));
+        assert!(like_match("a", "_"));
+        assert!(!like_match("ab", "_"));
+    }
+
+    #[test]
+    fn like_combined_wildcards() {
+        assert!(like_match("user@gmail.com", "%@%.com"));
+        assert!(!like_match("user@gmail.org", "%@%.com"));
+        assert!(like_match("abc", "_b%"));
+        assert!(like_match("abcdef", "_b%"));
+        assert!(like_match("xbcdef", "_b%")); // '_' matches 'x', 'b' matches 'b', '%' matches rest
+    }
+
+    #[test]
+    fn like_empty_cases() {
+        assert!(like_match("", ""));
+        assert!(!like_match("", "_"));
+        assert!(!like_match("a", ""));
+    }
+
+    #[test]
+    fn like_case_sensitive() {
+        assert!(!like_match("Hello", "hello"));
+        assert!(like_match("Hello", "Hello"));
     }
 
     #[test]

@@ -1,6 +1,8 @@
 use std::time::Instant;
 
 use crate::types::evaluation_report::EvaluationReport;
+use crate::types::value::like_match;
+use crate::types::CompareOp;
 use crate::types::{CompiledExpr, CompiledRule};
 use crate::{Terminal, Value, Verdict};
 
@@ -116,6 +118,59 @@ fn eval_expr(expr: &CompiledExpr, field_values: &[Option<Value>], results: &[boo
         }
         CompiledExpr::Not(inner) => !eval_expr(inner, field_values, results),
         CompiledExpr::RuleRef(idx) => results[*idx],
+        CompiledExpr::In {
+            field_index,
+            values,
+        } => field_values
+            .get(*field_index)
+            .and_then(Option::as_ref)
+            .is_some_and(|ctx_val| {
+                values
+                    .iter()
+                    .any(|v| ctx_val.compare(CompareOp::Eq, v) == Some(true))
+            }),
+        CompiledExpr::NotIn {
+            field_index,
+            values,
+        } => field_values
+            .get(*field_index)
+            .and_then(Option::as_ref)
+            .is_some_and(|ctx_val| {
+                !values
+                    .iter()
+                    .any(|v| ctx_val.compare(CompareOp::Eq, v) == Some(true))
+            }),
+        CompiledExpr::Between {
+            field_index,
+            low,
+            high,
+        } => field_values
+            .get(*field_index)
+            .and_then(Option::as_ref)
+            .is_some_and(|ctx_val| {
+                ctx_val.compare(CompareOp::Gte, low) == Some(true)
+                    && ctx_val.compare(CompareOp::Lte, high) == Some(true)
+            }),
+        CompiledExpr::Like {
+            field_index,
+            pattern,
+        } => match field_values.get(*field_index).and_then(Option::as_ref) {
+            Some(Value::String(s)) => like_match(s, pattern),
+            _ => false,
+        },
+        CompiledExpr::NotLike {
+            field_index,
+            pattern,
+        } => match field_values.get(*field_index).and_then(Option::as_ref) {
+            Some(Value::String(s)) => !like_match(s, pattern),
+            _ => false,
+        },
+        CompiledExpr::IsNull(field_index) => {
+            field_values.get(*field_index).is_none_or(Option::is_none)
+        }
+        CompiledExpr::IsNotNull(field_index) => {
+            field_values.get(*field_index).is_some_and(Option::is_some)
+        }
     }
 }
 

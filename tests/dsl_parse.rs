@@ -291,6 +291,168 @@ rule r (priority 0):
 }
 
 #[test]
+fn dsl_in_expression() {
+    let dsl = r#"
+rule valid_country (priority 0):
+    user.country IN ["US", "CA", "GB", "AU"]
+"#;
+
+    let ruleset = RuleSet::from_dsl(dsl).unwrap();
+
+    let ctx = Context::new().set("user.country", "US");
+    assert!(ruleset.evaluate(&ctx).is_some());
+
+    let ctx = Context::new().set("user.country", "GB");
+    assert!(ruleset.evaluate(&ctx).is_some());
+
+    let ctx = Context::new().set("user.country", "FR");
+    assert!(ruleset.evaluate(&ctx).is_none());
+}
+
+#[test]
+fn dsl_not_in_expression() {
+    let dsl = r#"
+rule not_banned_country (priority 0):
+    user.country NOT IN ["NK", "IR"]
+"#;
+
+    let ruleset = RuleSet::from_dsl(dsl).unwrap();
+
+    let ctx = Context::new().set("user.country", "US");
+    assert!(ruleset.evaluate(&ctx).is_some());
+
+    let ctx = Context::new().set("user.country", "NK");
+    assert!(ruleset.evaluate(&ctx).is_none());
+}
+
+#[test]
+fn dsl_between_expression() {
+    let dsl = r#"
+rule age_range (priority 0):
+    user.age BETWEEN 18 AND 65
+"#;
+
+    let ruleset = RuleSet::from_dsl(dsl).unwrap();
+
+    let ctx = Context::new().set("user.age", 25_i64);
+    assert!(ruleset.evaluate(&ctx).is_some());
+
+    let ctx = Context::new().set("user.age", 18_i64);
+    assert!(ruleset.evaluate(&ctx).is_some());
+
+    let ctx = Context::new().set("user.age", 65_i64);
+    assert!(ruleset.evaluate(&ctx).is_some());
+
+    let ctx = Context::new().set("user.age", 17_i64);
+    assert!(ruleset.evaluate(&ctx).is_none());
+
+    let ctx = Context::new().set("user.age", 66_i64);
+    assert!(ruleset.evaluate(&ctx).is_none());
+}
+
+#[test]
+fn dsl_like_expression() {
+    let dsl = r#"
+rule gmail_user (priority 0):
+    user.email LIKE "%@gmail.com"
+"#;
+
+    let ruleset = RuleSet::from_dsl(dsl).unwrap();
+
+    let ctx = Context::new().set("user.email", "john@gmail.com");
+    assert!(ruleset.evaluate(&ctx).is_some());
+
+    let ctx = Context::new().set("user.email", "john@yahoo.com");
+    assert!(ruleset.evaluate(&ctx).is_none());
+}
+
+#[test]
+fn dsl_not_like_expression() {
+    let dsl = r#"
+rule non_test_email (priority 0):
+    user.email NOT LIKE "%@test.%"
+"#;
+
+    let ruleset = RuleSet::from_dsl(dsl).unwrap();
+
+    let ctx = Context::new().set("user.email", "john@gmail.com");
+    assert!(ruleset.evaluate(&ctx).is_some());
+
+    let ctx = Context::new().set("user.email", "bot@test.com");
+    assert!(ruleset.evaluate(&ctx).is_none());
+}
+
+#[test]
+fn dsl_is_null_expression() {
+    let dsl = r#"
+rule missing_email (priority 0):
+    user.email IS NULL
+"#;
+
+    let ruleset = RuleSet::from_dsl(dsl).unwrap();
+
+    let ctx = Context::new();
+    assert!(ruleset.evaluate(&ctx).is_some());
+
+    let ctx = Context::new().set("user.email", "x@y.com");
+    assert!(ruleset.evaluate(&ctx).is_none());
+}
+
+#[test]
+fn dsl_is_not_null_expression() {
+    let dsl = r#"
+rule has_email (priority 0):
+    user.email IS NOT NULL
+"#;
+
+    let ruleset = RuleSet::from_dsl(dsl).unwrap();
+
+    let ctx = Context::new().set("user.email", "x@y.com");
+    assert!(ruleset.evaluate(&ctx).is_some());
+
+    let ctx = Context::new();
+    assert!(ruleset.evaluate(&ctx).is_none());
+}
+
+#[test]
+fn dsl_combined_new_operators() {
+    let dsl = r#"
+rule valid_country:
+    user.country IN ["US", "CA", "GB"]
+
+rule valid_age:
+    user.age BETWEEN 18 AND 65
+
+rule has_email:
+    user.email IS NOT NULL
+
+rule eligible (priority 0):
+    valid_country AND valid_age AND has_email
+"#;
+
+    let ruleset = RuleSet::from_dsl(dsl).unwrap();
+
+    let ctx = Context::new()
+        .set("user.country", "US")
+        .set("user.age", 30_i64)
+        .set("user.email", "john@example.com");
+    assert!(ruleset.evaluate(&ctx).is_some());
+
+    // Missing email
+    let ctx = Context::new()
+        .set("user.country", "US")
+        .set("user.age", 30_i64);
+    assert!(ruleset.evaluate(&ctx).is_none());
+
+    // Invalid country
+    let ctx = Context::new()
+        .set("user.country", "FR")
+        .set("user.age", 30_i64)
+        .set("user.email", "john@example.com");
+    assert!(ruleset.evaluate(&ctx).is_none());
+}
+
+#[test]
 fn dsl_from_file() {
     let ruleset = RuleSet::from_file("examples/rules.ooroo").unwrap();
 
