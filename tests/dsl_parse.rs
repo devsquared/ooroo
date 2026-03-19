@@ -219,6 +219,25 @@ fn dsl_parse_error_has_location() {
 }
 
 #[test]
+fn dsl_hyphenated_rule_name_gives_descriptive_error() {
+    let dsl = "rule within-budget: value > 0";
+    let err = RuleSet::from_dsl(dsl).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("letters") || msg.contains("underscore") || msg.contains("invalid"),
+        "error should describe the naming constraint, got: {msg}"
+    );
+}
+
+#[test]
+fn dsl_underscored_rule_name_still_works() {
+    let dsl = "rule within_budget (priority 0):\n    value > 0";
+    let ctx = Context::new().set("value", 10_i64);
+    let ruleset = RuleSet::from_dsl(dsl).unwrap();
+    assert!(ruleset.evaluate(&ctx).is_some());
+}
+
+#[test]
 fn dsl_compile_error_propagates() {
     // Undefined rule reference
     let dsl = r#"
