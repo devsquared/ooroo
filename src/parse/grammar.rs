@@ -1,5 +1,5 @@
 use winnow::ascii::{dec_int, till_line_ending};
-use winnow::combinator::{alt, cut_err, delimited, opt, preceded, repeat};
+use winnow::combinator::{alt, cut_err, delimited, fail, opt, preceded, repeat};
 use winnow::error::{ErrMode, ModalResult, StrContext, StrContextValue};
 use winnow::prelude::*;
 use winnow::token::{any, take_while};
@@ -33,6 +33,30 @@ fn ident<'i>(input: &mut &'i str) -> ModalResult<&'i str> {
     )
         .take()
         .parse_next(input)
+}
+
+/// Like `ident`, but returns a descriptive error if the identifier is
+/// immediately followed by invalid name characters (e.g. a hyphen).
+fn rule_name_ident<'i>(input: &mut &'i str) -> ModalResult<&'i str> {
+    let result = ident.parse_next(input)?;
+
+    // If the ident is immediately followed by a non-separator character the
+    // user likely wrote an invalid name like `within-budget`. Emit a clear
+    // error rather than letting the parser fail cryptically later.
+    if input
+        .chars()
+        .next()
+        .map(|c| !c.is_ascii_whitespace() && c != ':' && c != '(')
+        .unwrap_or(false)
+    {
+        return cut_err(fail)
+            .context(StrContext::Label(
+                "rule names must contain only letters, digits, and underscores",
+            ))
+            .parse_next(input);
+    }
+
+    Ok(result)
 }
 
 // -- Values -----------------------------------------------------------------
@@ -288,7 +312,7 @@ fn rule_def(input: &mut &str) -> ModalResult<(Rule, Option<Terminal>)> {
     "rule".parse_next(input)?;
     ws.parse_next(input)?;
 
-    let name = cut_err(ident)
+    let name = cut_err(rule_name_ident)
         .context(StrContext::Expected(StrContextValue::Description(
             "rule name",
         )))
