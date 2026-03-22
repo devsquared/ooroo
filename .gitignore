@@ -7,6 +7,4 @@ target
 **/*.rs.bk
 
 # Claude files
-.claude
-CLAUDE.md
 plan-docs/
