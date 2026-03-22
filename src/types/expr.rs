@@ -3,6 +3,87 @@ use std::ops::Not;
 
 use super::Value;
 
+/// A bound used in range and membership expressions.
+///
+/// Each bound is independently either a literal scalar value or a reference to
+/// a context field whose value is resolved at evaluation time.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Bound {
+    /// A static scalar value.
+    Literal(Value),
+    /// A dot-separated field path resolved from the evaluation context.
+    Field(String),
+}
+
+impl fmt::Display for Bound {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Bound::Literal(v) => write!(f, "{v}"),
+            Bound::Field(path) => write!(f, "{path}"),
+        }
+    }
+}
+
+impl From<Value> for Bound {
+    fn from(v: Value) -> Self {
+        Bound::Literal(v)
+    }
+}
+
+impl From<i64> for Bound {
+    fn from(v: i64) -> Self {
+        Bound::Literal(Value::Int(v))
+    }
+}
+
+impl From<f64> for Bound {
+    fn from(v: f64) -> Self {
+        Bound::Literal(Value::Float(v))
+    }
+}
+
+impl From<bool> for Bound {
+    fn from(v: bool) -> Self {
+        Bound::Literal(Value::Bool(v))
+    }
+}
+
+impl From<&str> for Bound {
+    fn from(v: &str) -> Self {
+        Bound::Literal(Value::String(v.to_owned()))
+    }
+}
+
+impl From<String> for Bound {
+    fn from(v: String) -> Self {
+        Bound::Literal(Value::String(v))
+    }
+}
+
+/// Create a [`Bound`] that references a context field by path.
+///
+/// Use this alongside literal values when constructing range or membership
+/// expressions where one or both bounds come from the evaluation context.
+///
+/// # Example
+/// ```ignore
+/// use ooroo::{field, bound_field};
+///
+/// // score must be between 10 and whatever tier.max_score holds at runtime
+/// let expr = field("score").between(10_i64, bound_field("tier.max_score"));
+/// ```
+#[must_use]
+pub fn bound_field(path: &str) -> Bound {
+    Bound::Field(path.to_owned())
+}
+
+/// Compiled bound with field paths resolved to registry indices.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum CompiledBound {
+    Literal(Value),
+    FieldIndex(usize),
+}
+
 /// Comparison operators supported in rule expressions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompareOp {
@@ -41,28 +122,31 @@ pub enum Expr {
     Not(Box<Expr>),
     /// A reference to another rule by name.
     RuleRef(String),
-    /// Membership test: field value must be in the given list.
+    /// Membership test: field value must match one of the given bounds.
+    /// Each member is independently a literal value or a context field reference.
     In {
         /// Dot-separated field path.
         field: String,
-        /// Candidate values.
-        values: Vec<Value>,
+        /// Candidate values or field references.
+        members: Vec<Bound>,
     },
-    /// Negated membership test: field value must not be in the given list.
+    /// Negated membership test: field value must not match any of the given bounds.
+    /// Each member is independently a literal value or a context field reference.
     NotIn {
         /// Dot-separated field path.
         field: String,
-        /// Candidate values.
-        values: Vec<Value>,
+        /// Candidate values or field references.
+        members: Vec<Bound>,
     },
     /// Range test: field value must be between low and high (inclusive).
+    /// Each bound is independently a literal value or a context field reference.
     Between {
         /// Dot-separated field path.
         field: String,
         /// Lower bound (inclusive).
-        low: Value,
+        low: Bound,
         /// Upper bound (inclusive).
-        high: Value,
+        high: Bound,
     },
     /// SQL LIKE pattern match (`%` = any sequence, `_` = one character).
     Like {
@@ -100,16 +184,16 @@ pub(crate) enum CompiledExpr {
     RuleRef(usize),
     In {
         field_index: usize,
-        values: Vec<Value>,
+        members: Vec<CompiledBound>,
     },
     NotIn {
         field_index: usize,
-        values: Vec<Value>,
+        members: Vec<CompiledBound>,
     },
     Between {
         field_index: usize,
-        low: Value,
-        high: Value,
+        low: CompiledBound,
+        high: CompiledBound,
     },
     Like {
         field_index: usize,
@@ -144,16 +228,16 @@ impl fmt::Display for Expr {
             Expr::Or(a, b) => write!(f, "({a} OR {b})"),
             Expr::Not(inner) => write!(f, "(NOT {inner})"),
             Expr::RuleRef(name) => write!(f, "{name}"),
-            Expr::In { field, values } => {
-                let vals: Vec<String> = values.iter().map(ToString::to_string).collect();
+            Expr::In { field, members } => {
+                let vals: Vec<String> = members.iter().map(ToString::to_string).collect();
                 write!(f, "({field} IN [{}])", vals.join(", "))
             }
-            Expr::NotIn { field, values } => {
-                let vals: Vec<String> = values.iter().map(ToString::to_string).collect();
+            Expr::NotIn { field, members } => {
+                let vals: Vec<String> = members.iter().map(ToString::to_string).collect();
                 write!(f, "({field} NOT IN [{}])", vals.join(", "))
             }
             Expr::Between { field, low, high } => {
-                write!(f, "({field} BETWEEN {low} AND {high})")
+                write!(f, "({field} BETWEEN {low}, {high})")
             }
             Expr::Like { field, pattern } => write!(f, "({field} LIKE \"{pattern}\")"),
             Expr::NotLike { field, pattern } => write!(f, "({field} NOT LIKE \"{pattern}\")"),
@@ -254,34 +338,43 @@ impl FieldExpr {
     }
 
     /// Build an `IN` membership test.
+    ///
+    /// Each member accepts any scalar literal (via `Into<Value>`) or a field
+    /// reference created with [`bound_field`].
     #[must_use]
     pub fn is_in<I, V>(self, values: I) -> Expr
     where
         I: IntoIterator<Item = V>,
-        V: Into<Value>,
+        V: Into<Bound>,
     {
         Expr::In {
             field: self.path,
-            values: values.into_iter().map(Into::into).collect(),
+            members: values.into_iter().map(Into::into).collect(),
         }
     }
 
     /// Build a `NOT IN` membership test.
+    ///
+    /// Each member accepts any scalar literal (via `Into<Value>`) or a field
+    /// reference created with [`bound_field`].
     #[must_use]
     pub fn not_in<I, V>(self, values: I) -> Expr
     where
         I: IntoIterator<Item = V>,
-        V: Into<Value>,
+        V: Into<Bound>,
     {
         Expr::NotIn {
             field: self.path,
-            values: values.into_iter().map(Into::into).collect(),
+            members: values.into_iter().map(Into::into).collect(),
         }
     }
 
     /// Build a `BETWEEN` range test (inclusive on both ends).
+    ///
+    /// Each bound accepts any scalar literal (via `Into<Value>`) or a field
+    /// reference created with [`bound_field`].
     #[must_use]
-    pub fn between(self, low: impl Into<Value>, high: impl Into<Value>) -> Expr {
+    pub fn between(self, low: impl Into<Bound>, high: impl Into<Bound>) -> Expr {
         Expr::Between {
             field: self.path,
             low: low.into(),
@@ -437,45 +530,86 @@ mod tests {
     }
 
     #[test]
-    fn field_is_in() {
+    fn field_is_in_literals() {
         let expr = field("country").is_in(["US", "CA", "GB"]);
         assert_eq!(
             expr,
             Expr::In {
                 field: "country".to_owned(),
-                values: vec![
-                    Value::String("US".to_owned()),
-                    Value::String("CA".to_owned()),
-                    Value::String("GB".to_owned()),
+                members: vec![
+                    Bound::Literal(Value::String("US".to_owned())),
+                    Bound::Literal(Value::String("CA".to_owned())),
+                    Bound::Literal(Value::String("GB".to_owned())),
                 ],
             }
         );
     }
 
     #[test]
-    fn field_not_in() {
+    fn field_not_in_literals() {
         let expr = field("status").not_in(["banned", "suspended"]);
         assert_eq!(
             expr,
             Expr::NotIn {
                 field: "status".to_owned(),
-                values: vec![
-                    Value::String("banned".to_owned()),
-                    Value::String("suspended".to_owned()),
+                members: vec![
+                    Bound::Literal(Value::String("banned".to_owned())),
+                    Bound::Literal(Value::String("suspended".to_owned())),
                 ],
             }
         );
     }
 
     #[test]
-    fn field_between() {
+    fn field_is_in_with_field_ref() {
+        let expr = field("role").is_in([Bound::from("admin"), bound_field("team.default_role")]);
+        assert_eq!(
+            expr,
+            Expr::In {
+                field: "role".to_owned(),
+                members: vec![
+                    Bound::Literal(Value::String("admin".to_owned())),
+                    Bound::Field("team.default_role".to_owned()),
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn field_between_literals() {
         let expr = field("age").between(18_i64, 65_i64);
         assert_eq!(
             expr,
             Expr::Between {
                 field: "age".to_owned(),
-                low: Value::Int(18),
-                high: Value::Int(65),
+                low: Bound::Literal(Value::Int(18)),
+                high: Bound::Literal(Value::Int(65)),
+            }
+        );
+    }
+
+    #[test]
+    fn field_between_field_bounds() {
+        let expr = field("score").between(bound_field("tier.min"), bound_field("tier.max"));
+        assert_eq!(
+            expr,
+            Expr::Between {
+                field: "score".to_owned(),
+                low: Bound::Field("tier.min".to_owned()),
+                high: Bound::Field("tier.max".to_owned()),
+            }
+        );
+    }
+
+    #[test]
+    fn field_between_mixed_bounds() {
+        let expr = field("score").between(10_i64, bound_field("tier.max_score"));
+        assert_eq!(
+            expr,
+            Expr::Between {
+                field: "score".to_owned(),
+                low: Bound::Literal(Value::Int(10)),
+                high: Bound::Field("tier.max_score".to_owned()),
             }
         );
     }

@@ -3,7 +3,7 @@ use std::time::Instant;
 use crate::types::evaluation_report::EvaluationReport;
 use crate::types::value::like_match;
 use crate::types::CompareOp;
-use crate::types::{CompiledExpr, CompiledRule};
+use crate::types::{CompiledBound, CompiledExpr, CompiledRule};
 use crate::{Terminal, Value, Verdict};
 
 /// Stack threshold: rulesets with this many rules or fewer use a stack-allocated
@@ -99,6 +99,16 @@ fn evaluate_inner(
     None
 }
 
+fn resolve_bound<'a>(
+    bound: &'a CompiledBound,
+    field_values: &'a [Option<Value>],
+) -> Option<&'a Value> {
+    match bound {
+        CompiledBound::Literal(v) => Some(v),
+        CompiledBound::FieldIndex(i) => field_values.get(*i).and_then(Option::as_ref),
+    }
+}
+
 fn eval_expr(expr: &CompiledExpr, field_values: &[Option<Value>], results: &[bool]) -> bool {
     match expr {
         CompiledExpr::Compare {
@@ -120,37 +130,44 @@ fn eval_expr(expr: &CompiledExpr, field_values: &[Option<Value>], results: &[boo
         CompiledExpr::RuleRef(idx) => results[*idx],
         CompiledExpr::In {
             field_index,
-            values,
+            members,
         } => field_values
             .get(*field_index)
             .and_then(Option::as_ref)
             .is_some_and(|ctx_val| {
-                values
-                    .iter()
-                    .any(|v| ctx_val.compare(CompareOp::Eq, v) == Some(true))
+                members.iter().any(|m| {
+                    resolve_bound(m, field_values)
+                        .is_some_and(|v| ctx_val.compare(CompareOp::Eq, v) == Some(true))
+                })
             }),
         CompiledExpr::NotIn {
             field_index,
-            values,
+            members,
         } => field_values
             .get(*field_index)
             .and_then(Option::as_ref)
             .is_some_and(|ctx_val| {
-                !values
-                    .iter()
-                    .any(|v| ctx_val.compare(CompareOp::Eq, v) == Some(true))
+                !members.iter().any(|m| {
+                    resolve_bound(m, field_values)
+                        .is_some_and(|v| ctx_val.compare(CompareOp::Eq, v) == Some(true))
+                })
             }),
         CompiledExpr::Between {
             field_index,
             low,
             high,
-        } => field_values
-            .get(*field_index)
-            .and_then(Option::as_ref)
-            .is_some_and(|ctx_val| {
-                ctx_val.compare(CompareOp::Gte, low) == Some(true)
-                    && ctx_val.compare(CompareOp::Lte, high) == Some(true)
-            }),
+        } => {
+            let low_val = resolve_bound(low, field_values);
+            let high_val = resolve_bound(high, field_values);
+            field_values
+                .get(*field_index)
+                .and_then(Option::as_ref)
+                .is_some_and(|ctx_val| {
+                    low_val.is_some_and(|l| ctx_val.compare(CompareOp::Gte, l) == Some(true))
+                        && high_val
+                            .is_some_and(|h| ctx_val.compare(CompareOp::Lte, h) == Some(true))
+                })
+        }
         CompiledExpr::Like {
             field_index,
             pattern,

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::types::{CompiledExpr, CompiledRule};
-use crate::{CompileError, Expr, FieldRegistry, Rule, RuleSet, Terminal};
+use crate::types::{CompiledBound, CompiledExpr, CompiledRule};
+use crate::{Bound, CompileError, Expr, FieldRegistry, Rule, RuleSet, Terminal};
 
 pub(crate) fn compile(
     rules: &[Rule],
@@ -315,14 +315,28 @@ fn dfs<'a>(
 fn collect_fields(expr: &Expr, registry: &mut FieldRegistry) {
     match expr {
         Expr::Compare { field, .. }
-        | Expr::In { field, .. }
-        | Expr::NotIn { field, .. }
-        | Expr::Between { field, .. }
         | Expr::Like { field, .. }
         | Expr::NotLike { field, .. }
         | Expr::IsNull(field)
         | Expr::IsNotNull(field) => {
             registry.register(field);
+        }
+        Expr::In { field, members } | Expr::NotIn { field, members } => {
+            registry.register(field);
+            for m in members {
+                if let crate::Bound::Field(path) = m {
+                    registry.register(path);
+                }
+            }
+        }
+        Expr::Between { field, low, high } => {
+            registry.register(field);
+            if let crate::Bound::Field(path) = low {
+                registry.register(path);
+            }
+            if let crate::Bound::Field(path) = high {
+                registry.register(path);
+            }
         }
         Expr::And(a, b) | Expr::Or(a, b) => {
             collect_fields(a, registry);
@@ -330,6 +344,17 @@ fn collect_fields(expr: &Expr, registry: &mut FieldRegistry) {
         }
         Expr::Not(inner) => collect_fields(inner, registry),
         Expr::RuleRef(_) => {}
+    }
+}
+
+pub(crate) fn compile_bound(bound: &Bound, field_registry: &FieldRegistry) -> CompiledBound {
+    match bound {
+        Bound::Literal(v) => CompiledBound::Literal(v.clone()),
+        Bound::Field(path) => CompiledBound::FieldIndex(
+            field_registry
+                .get(path)
+                .expect("bound field should be registered"),
+        ),
     }
 }
 
@@ -362,24 +387,30 @@ fn compile_expr(
                 .get(name)
                 .expect("rule reference should be validated"),
         ),
-        Expr::In { field, values } => CompiledExpr::In {
+        Expr::In { field, members } => CompiledExpr::In {
             field_index: field_registry
                 .get(field)
                 .expect("field should be registered"),
-            values: values.clone(),
+            members: members
+                .iter()
+                .map(|b| compile_bound(b, field_registry))
+                .collect(),
         },
-        Expr::NotIn { field, values } => CompiledExpr::NotIn {
+        Expr::NotIn { field, members } => CompiledExpr::NotIn {
             field_index: field_registry
                 .get(field)
                 .expect("field should be registered"),
-            values: values.clone(),
+            members: members
+                .iter()
+                .map(|b| compile_bound(b, field_registry))
+                .collect(),
         },
         Expr::Between { field, low, high } => CompiledExpr::Between {
             field_index: field_registry
                 .get(field)
                 .expect("field should be registered"),
-            low: low.clone(),
-            high: high.clone(),
+            low: compile_bound(low, field_registry),
+            high: compile_bound(high, field_registry),
         },
         Expr::Like { field, pattern } => CompiledExpr::Like {
             field_index: field_registry

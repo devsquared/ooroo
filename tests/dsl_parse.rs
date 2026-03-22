@@ -348,7 +348,7 @@ rule not_banned_country (priority 0):
 fn dsl_between_expression() {
     let dsl = r#"
 rule age_range (priority 0):
-    user.age BETWEEN 18 AND 65
+    user.age BETWEEN 18, 65
 "#;
 
     let ruleset = RuleSet::from_dsl(dsl).unwrap();
@@ -440,7 +440,7 @@ rule valid_country:
     user.country IN ["US", "CA", "GB"]
 
 rule valid_age:
-    user.age BETWEEN 18 AND 65
+    user.age BETWEEN 18, 65
 
 rule has_email:
     user.email IS NOT NULL
