@@ -63,7 +63,7 @@ pub use parse::ParseError;
 #[cfg(feature = "binary-cache")]
 pub use serial::{DeserializeError, SerializeError};
 pub use types::{
-    field, rule_ref, CompareOp, CompileError, Context, ContextBuilder, EvaluationReport, Expr,
-    FieldExpr, FieldRegistry, IndexedContext, Rule, RuleSet, RuleSetBuilder, Terminal, Value,
-    Verdict,
+    bound_field, field, rule_ref, Bound, CompareOp, CompileError, Context, ContextBuilder,
+    EvaluationReport, Expr, FieldExpr, FieldRegistry, IndexedContext, Rule, RuleSet, RuleSetBuilder,
+    Terminal, Value, Verdict,
 };

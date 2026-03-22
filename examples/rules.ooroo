@@ -21,7 +21,7 @@ rule valid_country:
     user.country IN ["US", "CA", "GB", "AU"]
 
 rule working_age:
-    user.age BETWEEN 18 AND 65
+    user.age BETWEEN 18, 65
 
 rule gmail_user:
     user.email LIKE "%@gmail.com"

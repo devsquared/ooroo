@@ -4,7 +4,7 @@ use winnow::error::{ErrMode, ModalResult, StrContext, StrContextValue};
 use winnow::prelude::*;
 use winnow::token::{any, take_while};
 
-use crate::{CompareOp, Expr, Rule, Terminal, Value};
+use crate::{Bound, CompareOp, Expr, Rule, Terminal, Value};
 
 use super::parser::ParsedRuleSet;
 
@@ -132,6 +132,18 @@ fn value(input: &mut &str) -> ModalResult<Value> {
     .parse_next(input)
 }
 
+/// Parse a BETWEEN/FieldIn bound: a literal value or an unquoted field path.
+/// Unquoted identifiers (dotted or flat) are unambiguous as field refs since
+/// all scalar types have distinct lexical forms.
+fn bound(input: &mut &str) -> ModalResult<Bound> {
+    ws.parse_next(input)?;
+    alt((
+        value.map(Bound::Literal),
+        ident.map(|s: &str| Bound::Field(s.to_owned())),
+    ))
+    .parse_next(input)
+}
+
 // -- Comparison operators ---------------------------------------------------
 
 fn compare_op(input: &mut &str) -> ModalResult<CompareOp> {
@@ -158,22 +170,22 @@ fn primary(input: &mut &str) -> ModalResult<Expr> {
         .parse_next(input)
 }
 
-fn value_list(input: &mut &str) -> ModalResult<Vec<Value>> {
+fn bound_list(input: &mut &str) -> ModalResult<Vec<Bound>> {
     ws.parse_next(input)?;
     '['.parse_next(input)?;
     ws.parse_next(input)?;
-    let first = value.parse_next(input)?;
-    let mut values = vec![first];
+    let first = bound.parse_next(input)?;
+    let mut members = vec![first];
     loop {
         ws.parse_next(input)?;
         if opt(']').parse_next(input)?.is_some() {
             break;
         }
         ','.parse_next(input)?;
-        let v = cut_err(value).parse_next(input)?;
-        values.push(v);
+        let m = cut_err(bound).parse_next(input)?;
+        members.push(m);
     }
-    Ok(values)
+    Ok(members)
 }
 
 fn comparison_or_rule_ref(input: &mut &str) -> ModalResult<Expr> {
@@ -197,10 +209,10 @@ fn comparison_or_rule_ref(input: &mut &str) -> ModalResult<Expr> {
     if opt(alt(("NOT", "not"))).parse_next(input)?.is_some() {
         ws.parse_next(input)?;
         if opt(alt(("IN", "in"))).parse_next(input)?.is_some() {
-            let values = cut_err(value_list).parse_next(input)?;
+            let members = cut_err(bound_list).parse_next(input)?;
             return Ok(Expr::NotIn {
                 field: name.to_owned(),
-                values,
+                members,
             });
         }
         // Must be NOT LIKE
@@ -215,10 +227,10 @@ fn comparison_or_rule_ref(input: &mut &str) -> ModalResult<Expr> {
 
     // IN
     if opt(alt(("IN", "in"))).parse_next(input)?.is_some() {
-        let values = cut_err(value_list).parse_next(input)?;
+        let members = cut_err(bound_list).parse_next(input)?;
         return Ok(Expr::In {
             field: name.to_owned(),
-            values,
+            members,
         });
     }
 
@@ -237,10 +249,10 @@ fn comparison_or_rule_ref(input: &mut &str) -> ModalResult<Expr> {
         .parse_next(input)?
         .is_some()
     {
-        let low = cut_err(value).parse_next(input)?;
+        let low = cut_err(bound).parse_next(input)?;
         ws.parse_next(input)?;
-        cut_err(alt(("AND", "and"))).parse_next(input)?;
-        let high = cut_err(value).parse_next(input)?;
+        cut_err(',').parse_next(input)?;
+        let high = cut_err(bound).parse_next(input)?;
         return Ok(Expr::Between {
             field: name.to_owned(),
             low,
@@ -521,12 +533,12 @@ mod tests {
     fn parse_in_expression() {
         let result = parse("rule r:\n    country IN [\"US\", \"CA\", \"GB\"]").unwrap();
         match result.rules[0].condition.as_ref().unwrap() {
-            Expr::In { field, values } => {
+            Expr::In { field, members } => {
                 assert_eq!(field, "country");
-                assert_eq!(values.len(), 3);
-                assert_eq!(values[0], Value::String("US".into()));
-                assert_eq!(values[1], Value::String("CA".into()));
-                assert_eq!(values[2], Value::String("GB".into()));
+                assert_eq!(members.len(), 3);
+                assert_eq!(members[0], Bound::Literal(Value::String("US".into())));
+                assert_eq!(members[1], Bound::Literal(Value::String("CA".into())));
+                assert_eq!(members[2], Bound::Literal(Value::String("GB".into())));
             }
             other => panic!("expected In, got {other:?}"),
         }
@@ -536,22 +548,61 @@ mod tests {
     fn parse_not_in_expression() {
         let result = parse("rule r:\n    status NOT IN [\"banned\", \"suspended\"]").unwrap();
         match result.rules[0].condition.as_ref().unwrap() {
-            Expr::NotIn { field, values } => {
+            Expr::NotIn { field, members } => {
                 assert_eq!(field, "status");
-                assert_eq!(values.len(), 2);
+                assert_eq!(members.len(), 2);
             }
             other => panic!("expected NotIn, got {other:?}"),
         }
     }
 
     #[test]
+    fn parse_in_with_field_refs() {
+        let result = parse("rule r:\n    role IN [\"admin\", team.default_role]").unwrap();
+        match result.rules[0].condition.as_ref().unwrap() {
+            Expr::In { field, members } => {
+                assert_eq!(field, "role");
+                assert_eq!(members[0], Bound::Literal(Value::String("admin".into())));
+                assert_eq!(members[1], Bound::Field("team.default_role".to_owned()));
+            }
+            other => panic!("expected In, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn parse_between_expression() {
-        let result = parse("rule r:\n    user.age BETWEEN 18 AND 65").unwrap();
+        let result = parse("rule r:\n    user.age BETWEEN 18, 65").unwrap();
         match result.rules[0].condition.as_ref().unwrap() {
             Expr::Between { field, low, high } => {
                 assert_eq!(field, "user.age");
-                assert_eq!(*low, Value::Int(18));
-                assert_eq!(*high, Value::Int(65));
+                assert_eq!(*low, Bound::Literal(Value::Int(18)));
+                assert_eq!(*high, Bound::Literal(Value::Int(65)));
+            }
+            other => panic!("expected Between, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_between_field_bounds() {
+        let result = parse("rule r:\n    score BETWEEN tier.min, tier.max").unwrap();
+        match result.rules[0].condition.as_ref().unwrap() {
+            Expr::Between { field, low, high } => {
+                assert_eq!(field, "score");
+                assert_eq!(*low, Bound::Field("tier.min".to_owned()));
+                assert_eq!(*high, Bound::Field("tier.max".to_owned()));
+            }
+            other => panic!("expected Between, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_between_mixed_bounds() {
+        let result = parse("rule r:\n    score BETWEEN 10, tier.max_score").unwrap();
+        match result.rules[0].condition.as_ref().unwrap() {
+            Expr::Between { field, low, high } => {
+                assert_eq!(field, "score");
+                assert_eq!(*low, Bound::Literal(Value::Int(10)));
+                assert_eq!(*high, Bound::Field("tier.max_score".to_owned()));
             }
             other => panic!("expected Between, got {other:?}"),
         }
@@ -603,8 +654,15 @@ mod tests {
     fn parse_in_with_integers() {
         let result = parse("rule r:\n    code IN [1, 2, 3]").unwrap();
         match result.rules[0].condition.as_ref().unwrap() {
-            Expr::In { values, .. } => {
-                assert_eq!(values, &[Value::Int(1), Value::Int(2), Value::Int(3)]);
+            Expr::In { members, .. } => {
+                assert_eq!(
+                    members,
+                    &[
+                        Bound::Literal(Value::Int(1)),
+                        Bound::Literal(Value::Int(2)),
+                        Bound::Literal(Value::Int(3)),
+                    ]
+                );
             }
             other => panic!("expected In, got {other:?}"),
         }
@@ -612,11 +670,11 @@ mod tests {
 
     #[test]
     fn parse_between_with_floats() {
-        let result = parse("rule r:\n    score BETWEEN 0.0 AND 100.0").unwrap();
+        let result = parse("rule r:\n    score BETWEEN 0.0, 100.0").unwrap();
         match result.rules[0].condition.as_ref().unwrap() {
             Expr::Between { low, high, .. } => {
-                assert_eq!(*low, Value::Float(0.0));
-                assert_eq!(*high, Value::Float(100.0));
+                assert_eq!(*low, Bound::Literal(Value::Float(0.0)));
+                assert_eq!(*high, Bound::Literal(Value::Float(100.0)));
             }
             other => panic!("expected Between, got {other:?}"),
         }
@@ -630,7 +688,7 @@ mod tests {
             Expr::In { .. }
         ));
 
-        let result = parse("rule r:\n    x between 1 and 10").unwrap();
+        let result = parse("rule r:\n    x between 1, 10").unwrap();
         assert!(matches!(
             result.rules[0].condition.as_ref().unwrap(),
             Expr::Between { .. }
@@ -646,7 +704,7 @@ mod tests {
     #[test]
     fn parse_new_ops_combined_with_and_or() {
         let result =
-            parse("rule r:\n    country IN [\"US\", \"CA\"] AND user.age BETWEEN 18 AND 65")
+            parse("rule r:\n    country IN [\"US\", \"CA\"] AND user.age BETWEEN 18, 65")
                 .unwrap();
         assert!(matches!(
             result.rules[0].condition.as_ref().unwrap(),

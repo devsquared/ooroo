@@ -404,7 +404,7 @@ rule country_ok:
     country IN ["US", "CA"]
 
 rule age_ok:
-    age BETWEEN 18 AND 65
+    age BETWEEN 18, 65
 
 rule eligible (priority 0):
     country_ok AND age_ok
