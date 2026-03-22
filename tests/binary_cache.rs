@@ -1,6 +1,6 @@
 #![cfg(feature = "binary-cache")]
 
-use ooroo::{field, rule_ref, Context, DeserializeError, RuleSet, RuleSetBuilder, Verdict};
+use ooroo::{bound_field, field, rule_ref, Context, DeserializeError, RuleSet, RuleSetBuilder, Value, Verdict};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -205,7 +205,7 @@ fn version_mismatch() {
             err,
             DeserializeError::IncompatibleVersion {
                 blob: 99,
-                supported: 2
+                supported: 3
             }
         ),
         "expected IncompatibleVersion, got: {err}"
@@ -432,6 +432,72 @@ fn empty_input_rejected() {
         matches!(err, DeserializeError::LengthMismatch { .. }),
         "expected LengthMismatch, got: {err}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Value::List round-trip
+// ---------------------------------------------------------------------------
+
+#[test]
+fn list_value_round_trip() {
+    // Rule using is_in_field with a list-valued context field
+    let original = RuleSetBuilder::new()
+        .rule("r", |r| r.when(field("role").is_in_field("allowed_roles")))
+        .terminal("r", 0)
+        .compile()
+        .unwrap();
+
+    let bytes = original.to_bytes(None).unwrap();
+    let restored = RuleSet::from_bytes(&bytes).unwrap();
+
+    let ctx = Context::new()
+        .set("role", "admin")
+        .set(
+            "allowed_roles",
+            Value::List(vec![
+                Value::String("admin".into()),
+                Value::String("editor".into()),
+            ]),
+        );
+    assert_eq!(original.evaluate(&ctx), restored.evaluate(&ctx));
+    assert_eq!(restored.evaluate(&ctx), Some(Verdict::new("r", true)));
+
+    let ctx_miss = Context::new()
+        .set("role", "guest")
+        .set(
+            "allowed_roles",
+            Value::List(vec![Value::String("admin".into())]),
+        );
+    assert_eq!(original.evaluate(&ctx_miss), restored.evaluate(&ctx_miss));
+    assert_eq!(restored.evaluate(&ctx_miss), None);
+}
+
+#[test]
+fn list_literal_in_compare_round_trip() {
+    // Rule comparing a field against a literal Value::List (Eq)
+    let original = RuleSetBuilder::new()
+        .rule("r", |r| {
+            r.when(field("tags").eq(Value::List(vec![
+                Value::String("rust".into()),
+                Value::String("async".into()),
+            ])))
+        })
+        .terminal("r", 0)
+        .compile()
+        .unwrap();
+
+    let bytes = original.to_bytes(None).unwrap();
+    let restored = RuleSet::from_bytes(&bytes).unwrap();
+
+    let ctx = Context::new().set(
+        "tags",
+        Value::List(vec![
+            Value::String("rust".into()),
+            Value::String("async".into()),
+        ]),
+    );
+    assert_eq!(original.evaluate(&ctx), restored.evaluate(&ctx));
+    assert_eq!(restored.evaluate(&ctx), Some(Verdict::new("r", true)));
 }
 
 // ---------------------------------------------------------------------------

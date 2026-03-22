@@ -118,9 +118,30 @@ fn float_literal(input: &mut &str) -> ModalResult<f64> {
         .parse_next(input)
 }
 
+fn value_list(input: &mut &str) -> ModalResult<Value> {
+    '['.parse_next(input)?;
+    ws.parse_next(input)?;
+    if opt(']').parse_next(input)?.is_some() {
+        return Ok(Value::List(vec![]));
+    }
+    let first = cut_err(value).parse_next(input)?;
+    let mut items = vec![first];
+    loop {
+        ws.parse_next(input)?;
+        if opt(']').parse_next(input)?.is_some() {
+            break;
+        }
+        cut_err(',').parse_next(input)?;
+        let v = cut_err(value).parse_next(input)?;
+        items.push(v);
+    }
+    Ok(Value::List(items))
+}
+
 fn value(input: &mut &str) -> ModalResult<Value> {
     ws.parse_next(input)?;
     alt((
+        value_list,
         string_literal.map(Value::String),
         "true".value(Value::Bool(true)),
         "false".value(Value::Bool(false)),
@@ -709,6 +730,85 @@ mod tests {
             result.rules[0].condition.as_ref().unwrap(),
             Expr::And(_, _)
         ));
+    }
+
+    #[test]
+    fn parse_list_literal_ints() {
+        let result = parse("rule r:\n    tags == [1, 2, 3]").unwrap();
+        match result.rules[0].condition.as_ref().unwrap() {
+            Expr::Compare { value, .. } => {
+                assert_eq!(
+                    *value,
+                    Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+                );
+            }
+            other => panic!("expected Compare, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_list_literal_strings() {
+        let result = parse("rule r:\n    roles == [\"admin\", \"editor\"]").unwrap();
+        match result.rules[0].condition.as_ref().unwrap() {
+            Expr::Compare { value, .. } => {
+                assert_eq!(
+                    *value,
+                    Value::List(vec![
+                        Value::String("admin".into()),
+                        Value::String("editor".into()),
+                    ])
+                );
+            }
+            other => panic!("expected Compare, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_list_literal_mixed_types() {
+        let result = parse("rule r:\n    x == [1, \"hello\", true, 3.14]").unwrap();
+        match result.rules[0].condition.as_ref().unwrap() {
+            Expr::Compare { value, .. } => {
+                assert_eq!(
+                    *value,
+                    Value::List(vec![
+                        Value::Int(1),
+                        Value::String("hello".into()),
+                        Value::Bool(true),
+                        Value::Float(3.14),
+                    ])
+                );
+            }
+            other => panic!("expected Compare, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_list_literal_empty() {
+        let result = parse("rule r:\n    x == []").unwrap();
+        match result.rules[0].condition.as_ref().unwrap() {
+            Expr::Compare { value, .. } => {
+                assert_eq!(*value, Value::List(vec![]));
+            }
+            other => panic!("expected Compare, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_list_literal_bools() {
+        let result = parse("rule r:\n    flags == [true, false, true]").unwrap();
+        match result.rules[0].condition.as_ref().unwrap() {
+            Expr::Compare { value, .. } => {
+                assert_eq!(
+                    *value,
+                    Value::List(vec![
+                        Value::Bool(true),
+                        Value::Bool(false),
+                        Value::Bool(true),
+                    ])
+                );
+            }
+            other => panic!("expected Compare, got {other:?}"),
+        }
     }
 
     #[test]
