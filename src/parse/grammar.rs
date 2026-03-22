@@ -704,8 +704,7 @@ mod tests {
     #[test]
     fn parse_new_ops_combined_with_and_or() {
         let result =
-            parse("rule r:\n    country IN [\"US\", \"CA\"] AND user.age BETWEEN 18, 65")
-                .unwrap();
+            parse("rule r:\n    country IN [\"US\", \"CA\"] AND user.age BETWEEN 18, 65").unwrap();
         assert!(matches!(
             result.rules[0].condition.as_ref().unwrap(),
             Expr::And(_, _)

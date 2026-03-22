@@ -16,11 +16,21 @@ fn between_literal_bounds_within_range() {
         .compile()
         .unwrap();
 
-    assert!(ruleset.evaluate(&Context::new().set("age", 18_i64)).is_some());
-    assert!(ruleset.evaluate(&Context::new().set("age", 40_i64)).is_some());
-    assert!(ruleset.evaluate(&Context::new().set("age", 65_i64)).is_some());
-    assert!(ruleset.evaluate(&Context::new().set("age", 17_i64)).is_none());
-    assert!(ruleset.evaluate(&Context::new().set("age", 66_i64)).is_none());
+    assert!(ruleset
+        .evaluate(&Context::new().set("age", 18_i64))
+        .is_some());
+    assert!(ruleset
+        .evaluate(&Context::new().set("age", 40_i64))
+        .is_some());
+    assert!(ruleset
+        .evaluate(&Context::new().set("age", 65_i64))
+        .is_some());
+    assert!(ruleset
+        .evaluate(&Context::new().set("age", 17_i64))
+        .is_none());
+    assert!(ruleset
+        .evaluate(&Context::new().set("age", 66_i64))
+        .is_none());
 }
 
 // -- Between: field bounds ----------------------------------------------------
@@ -30,10 +40,7 @@ fn between_field_bounds_both_sides() {
     // score must be within [tier.min, tier.max] — both bounds from context
     let ruleset = RuleSetBuilder::new()
         .rule("in_tier", |r| {
-            r.when(field("score").between(
-                bound_field("tier.min"),
-                bound_field("tier.max"),
-            ))
+            r.when(field("score").between(bound_field("tier.min"), bound_field("tier.max")))
         })
         .terminal("in_tier", 0)
         .compile()
@@ -78,10 +85,14 @@ fn between_mixed_bounds_literal_low_field_high() {
         .compile()
         .unwrap();
 
-    let ctx = Context::new().set("age", 25_i64).set("policy.max_age", 60_i64);
+    let ctx = Context::new()
+        .set("age", 25_i64)
+        .set("policy.max_age", 60_i64);
     assert!(ruleset.evaluate(&ctx).is_some());
 
-    let ctx = Context::new().set("age", 65_i64).set("policy.max_age", 60_i64);
+    let ctx = Context::new()
+        .set("age", 65_i64)
+        .set("policy.max_age", 60_i64);
     assert!(ruleset.evaluate(&ctx).is_none());
 }
 
@@ -106,21 +117,20 @@ fn between_mixed_bounds_field_low_literal_high() {
 
 #[test]
 fn between_dsl_literal_bounds() {
-    let ruleset = RuleSet::from_dsl(
-        "rule r (priority 0):\n    age BETWEEN 18, 65",
-    )
-    .unwrap();
+    let ruleset = RuleSet::from_dsl("rule r (priority 0):\n    age BETWEEN 18, 65").unwrap();
 
-    assert!(ruleset.evaluate(&Context::new().set("age", 30_i64)).is_some());
-    assert!(ruleset.evaluate(&Context::new().set("age", 10_i64)).is_none());
+    assert!(ruleset
+        .evaluate(&Context::new().set("age", 30_i64))
+        .is_some());
+    assert!(ruleset
+        .evaluate(&Context::new().set("age", 10_i64))
+        .is_none());
 }
 
 #[test]
 fn between_dsl_field_bounds() {
-    let ruleset = RuleSet::from_dsl(
-        "rule r (priority 0):\n    score BETWEEN tier.min, tier.max",
-    )
-    .unwrap();
+    let ruleset =
+        RuleSet::from_dsl("rule r (priority 0):\n    score BETWEEN tier.min, tier.max").unwrap();
 
     let ctx = Context::new()
         .set("score", 75_i64)
@@ -131,15 +141,17 @@ fn between_dsl_field_bounds() {
 
 #[test]
 fn between_dsl_mixed_bounds() {
-    let ruleset = RuleSet::from_dsl(
-        "rule r (priority 0):\n    score BETWEEN 10, tier.max_score",
-    )
-    .unwrap();
+    let ruleset =
+        RuleSet::from_dsl("rule r (priority 0):\n    score BETWEEN 10, tier.max_score").unwrap();
 
-    let ctx = Context::new().set("score", 50_i64).set("tier.max_score", 100_i64);
+    let ctx = Context::new()
+        .set("score", 50_i64)
+        .set("tier.max_score", 100_i64);
     assert!(ruleset.evaluate(&ctx).is_some());
 
-    let ctx = Context::new().set("score", 5_i64).set("tier.max_score", 100_i64);
+    let ctx = Context::new()
+        .set("score", 5_i64)
+        .set("tier.max_score", 100_i64);
     assert!(ruleset.evaluate(&ctx).is_none());
 }
 
@@ -150,10 +162,7 @@ fn in_with_field_ref_member() {
     // role must be "admin" OR match whatever team.default_role is
     let ruleset = RuleSetBuilder::new()
         .rule("allowed", |r| {
-            r.when(field("role").is_in([
-                Bound::from("admin"),
-                bound_field("team.default_role"),
-            ]))
+            r.when(field("role").is_in([Bound::from("admin"), bound_field("team.default_role")]))
         })
         .terminal("allowed", 0)
         .compile()
@@ -182,10 +191,10 @@ fn in_with_field_ref_member() {
 fn not_in_with_field_ref_member() {
     let ruleset = RuleSetBuilder::new()
         .rule("not_blocked", |r| {
-            r.when(field("status").not_in([
-                Bound::from("banned"),
-                bound_field("account.override_block"),
-            ]))
+            r.when(
+                field("status")
+                    .not_in([Bound::from("banned"), bound_field("account.override_block")]),
+            )
         })
         .terminal("not_blocked", 0)
         .compile()
@@ -215,10 +224,7 @@ fn in_missing_field_ref_member_skipped() {
     // If a Bound::Field member is absent, it simply doesn't match — no panic
     let ruleset = RuleSetBuilder::new()
         .rule("r", |r| {
-            r.when(field("role").is_in([
-                Bound::from("admin"),
-                bound_field("team.default_role"),
-            ]))
+            r.when(field("role").is_in([Bound::from("admin"), bound_field("team.default_role")]))
         })
         .terminal("r", 0)
         .compile()
@@ -236,10 +242,9 @@ fn in_missing_field_ref_member_skipped() {
 
 #[test]
 fn in_dsl_field_ref_member() {
-    let ruleset = RuleSet::from_dsl(
-        "rule r (priority 0):\n    role IN [\"admin\", team.default_role]",
-    )
-    .unwrap();
+    let ruleset =
+        RuleSet::from_dsl("rule r (priority 0):\n    role IN [\"admin\", team.default_role]")
+            .unwrap();
 
     let ctx = Context::new()
         .set("role", "editor")
@@ -272,10 +277,7 @@ fn between_composes_with_and() {
         .set("age", 30_i64)
         .set("policy.min_age", 18_i64)
         .set("status", "active");
-    assert_eq!(
-        ruleset.evaluate(&ctx),
-        Some(Verdict::new("eligible", true))
-    );
+    assert_eq!(ruleset.evaluate(&ctx), Some(Verdict::new("eligible", true)));
 
     // Age below dynamic minimum
     let ctx = Context::new()
@@ -327,10 +329,10 @@ fn policy_loan_approval_natural_rules() {
     let ruleset = RuleSetBuilder::new()
         .rule("credit_score_ok", |r| {
             // Score must be at least applicant.min_required_score (dynamic)
-            r.when(field("applicant.credit_score").between(
-                bound_field("applicant.min_required_score"),
-                850_i64,
-            ))
+            r.when(
+                field("applicant.credit_score")
+                    .between(bound_field("applicant.min_required_score"), 850_i64),
+            )
         })
         .rule("income_tier_ok", |r| {
             // Income tier must be in the allowed set for this loan product

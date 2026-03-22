@@ -99,7 +99,10 @@ fn evaluate_inner(
     None
 }
 
-fn resolve_bound<'a>(bound: &'a CompiledBound, field_values: &'a [Option<Value>]) -> Option<&'a Value> {
+fn resolve_bound<'a>(
+    bound: &'a CompiledBound,
+    field_values: &'a [Option<Value>],
+) -> Option<&'a Value> {
     match bound {
         CompiledBound::Literal(v) => Some(v),
         CompiledBound::FieldIndex(i) => field_values.get(*i).and_then(Option::as_ref),
@@ -160,8 +163,7 @@ fn eval_expr(expr: &CompiledExpr, field_values: &[Option<Value>], results: &[boo
                 .get(*field_index)
                 .and_then(Option::as_ref)
                 .is_some_and(|ctx_val| {
-                    low_val
-                        .is_some_and(|l| ctx_val.compare(CompareOp::Gte, l) == Some(true))
+                    low_val.is_some_and(|l| ctx_val.compare(CompareOp::Gte, l) == Some(true))
                         && high_val
                             .is_some_and(|h| ctx_val.compare(CompareOp::Lte, h) == Some(true))
                 })

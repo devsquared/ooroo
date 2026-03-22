@@ -391,13 +391,19 @@ fn compile_expr(
             field_index: field_registry
                 .get(field)
                 .expect("field should be registered"),
-            members: members.iter().map(|b| compile_bound(b, field_registry)).collect(),
+            members: members
+                .iter()
+                .map(|b| compile_bound(b, field_registry))
+                .collect(),
         },
         Expr::NotIn { field, members } => CompiledExpr::NotIn {
             field_index: field_registry
                 .get(field)
                 .expect("field should be registered"),
-            members: members.iter().map(|b| compile_bound(b, field_registry)).collect(),
+            members: members
+                .iter()
+                .map(|b| compile_bound(b, field_registry))
+                .collect(),
         },
         Expr::Between { field, low, high } => CompiledExpr::Between {
             field_index: field_registry

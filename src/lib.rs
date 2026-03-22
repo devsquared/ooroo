@@ -64,6 +64,6 @@ pub use parse::ParseError;
 pub use serial::{DeserializeError, SerializeError};
 pub use types::{
     bound_field, field, rule_ref, Bound, CompareOp, CompileError, Context, ContextBuilder,
-    EvaluationReport, Expr, FieldExpr, FieldRegistry, IndexedContext, Rule, RuleSet, RuleSetBuilder,
-    Terminal, Value, Verdict,
+    EvaluationReport, Expr, FieldExpr, FieldRegistry, IndexedContext, Rule, RuleSet,
+    RuleSetBuilder, Terminal, Value, Verdict,
 };
