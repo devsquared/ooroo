@@ -4,7 +4,9 @@
 /// against a list-typed context field, bound expansion for In/NotIn when a
 /// Bound::Field resolves to a Value::List, graceful degradation, and composition
 /// with AND/OR/NOT rule trees.
-use ooroo::{bound_field, field, rule_ref, Bound, Context, RuleSet, RuleSetBuilder, Value, Verdict};
+use ooroo::{
+    bound_field, field, rule_ref, Bound, Context, RuleSet, RuleSetBuilder, Value, Verdict,
+};
 
 // ---------------------------------------------------------------------------
 // Builder API: is_in_field
@@ -18,15 +20,13 @@ fn is_in_field_matches_when_value_in_list() {
         .compile()
         .unwrap();
 
-    let ctx = Context::new()
-        .set("role", "editor")
-        .set(
-            "allowed_roles",
-            Value::List(vec![
-                Value::String("admin".into()),
-                Value::String("editor".into()),
-            ]),
-        );
+    let ctx = Context::new().set("role", "editor").set(
+        "allowed_roles",
+        Value::List(vec![
+            Value::String("admin".into()),
+            Value::String("editor".into()),
+        ]),
+    );
     assert_eq!(ruleset.evaluate(&ctx), Some(Verdict::new("r", true)));
 }
 
@@ -38,15 +38,13 @@ fn is_in_field_no_match_returns_none() {
         .compile()
         .unwrap();
 
-    let ctx = Context::new()
-        .set("role", "guest")
-        .set(
-            "allowed_roles",
-            Value::List(vec![
-                Value::String("admin".into()),
-                Value::String("editor".into()),
-            ]),
-        );
+    let ctx = Context::new().set("role", "guest").set(
+        "allowed_roles",
+        Value::List(vec![
+            Value::String("admin".into()),
+            Value::String("editor".into()),
+        ]),
+    );
     assert!(ruleset.evaluate(&ctx).is_none());
 }
 
@@ -91,15 +89,13 @@ fn in_bound_field_expands_list_match() {
         .compile()
         .unwrap();
 
-    let ctx = Context::new()
-        .set("tag", "rust")
-        .set(
-            "allowed_tags",
-            Value::List(vec![
-                Value::String("rust".into()),
-                Value::String("systems".into()),
-            ]),
-        );
+    let ctx = Context::new().set("tag", "rust").set(
+        "allowed_tags",
+        Value::List(vec![
+            Value::String("rust".into()),
+            Value::String("systems".into()),
+        ]),
+    );
     assert_eq!(ruleset.evaluate(&ctx), Some(Verdict::new("r", true)));
 }
 
@@ -113,20 +109,22 @@ fn not_in_bound_field_expands_list() {
         .compile()
         .unwrap();
 
-    let ctx_ok = Context::new()
-        .set("status", "active")
-        .set(
-            "blocked_statuses",
-            Value::List(vec![Value::String("banned".into()), Value::String("suspended".into())]),
-        );
+    let ctx_ok = Context::new().set("status", "active").set(
+        "blocked_statuses",
+        Value::List(vec![
+            Value::String("banned".into()),
+            Value::String("suspended".into()),
+        ]),
+    );
     assert_eq!(ruleset.evaluate(&ctx_ok), Some(Verdict::new("r", true)));
 
-    let ctx_blocked = Context::new()
-        .set("status", "banned")
-        .set(
-            "blocked_statuses",
-            Value::List(vec![Value::String("banned".into()), Value::String("suspended".into())]),
-        );
+    let ctx_blocked = Context::new().set("status", "banned").set(
+        "blocked_statuses",
+        Value::List(vec![
+            Value::String("banned".into()),
+            Value::String("suspended".into()),
+        ]),
+    );
     assert!(ruleset.evaluate(&ctx_blocked).is_none());
 }
 
@@ -139,31 +137,31 @@ fn in_literal_and_list_field_bound() {
     // role must be "superuser" OR in whatever allowed_roles holds
     let ruleset = RuleSetBuilder::new()
         .rule("r", |r| {
-            r.when(field("role").is_in([
-                Bound::from("superuser"),
-                bound_field("allowed_roles"),
-            ]))
+            r.when(field("role").is_in([Bound::from("superuser"), bound_field("allowed_roles")]))
         })
         .terminal("r", 0)
         .compile()
         .unwrap();
 
     // Matches literal
-    let ctx = Context::new()
-        .set("role", "superuser")
-        .set("allowed_roles", Value::List(vec![Value::String("editor".into())]));
+    let ctx = Context::new().set("role", "superuser").set(
+        "allowed_roles",
+        Value::List(vec![Value::String("editor".into())]),
+    );
     assert!(ruleset.evaluate(&ctx).is_some());
 
     // Matches via list expansion
-    let ctx = Context::new()
-        .set("role", "editor")
-        .set("allowed_roles", Value::List(vec![Value::String("editor".into())]));
+    let ctx = Context::new().set("role", "editor").set(
+        "allowed_roles",
+        Value::List(vec![Value::String("editor".into())]),
+    );
     assert!(ruleset.evaluate(&ctx).is_some());
 
     // Matches neither
-    let ctx = Context::new()
-        .set("role", "guest")
-        .set("allowed_roles", Value::List(vec![Value::String("editor".into())]));
+    let ctx = Context::new().set("role", "guest").set(
+        "allowed_roles",
+        Value::List(vec![Value::String("editor".into())]),
+    );
     assert!(ruleset.evaluate(&ctx).is_none());
 }
 
@@ -174,8 +172,7 @@ fn in_literal_and_list_field_bound() {
 #[test]
 fn dsl_list_literal_eq_match() {
     // field == [1, 2, 3] — exact list equality
-    let ruleset =
-        RuleSet::from_dsl("rule r (priority 0):\n    codes == [1, 2, 3]").unwrap();
+    let ruleset = RuleSet::from_dsl("rule r (priority 0):\n    codes == [1, 2, 3]").unwrap();
 
     let ctx = Context::new().set(
         "codes",
@@ -183,19 +180,17 @@ fn dsl_list_literal_eq_match() {
     );
     assert!(ruleset.evaluate(&ctx).is_some());
 
-    let ctx_wrong = Context::new().set(
-        "codes",
-        Value::List(vec![Value::Int(1), Value::Int(2)]),
-    );
+    let ctx_wrong = Context::new().set("codes", Value::List(vec![Value::Int(1), Value::Int(2)]));
     assert!(ruleset.evaluate(&ctx_wrong).is_none());
 }
 
 #[test]
 fn dsl_list_literal_mixed_types() {
-    let ruleset =
-        RuleSet::from_dsl(r#"rule r (priority 0):
-    x == [1, "hello", true]"#)
-            .unwrap();
+    let ruleset = RuleSet::from_dsl(
+        r#"rule r (priority 0):
+    x == [1, "hello", true]"#,
+    )
+    .unwrap();
 
     let ctx = Context::new().set(
         "x",
@@ -226,7 +221,9 @@ fn dsl_empty_list_literal() {
 #[test]
 fn is_in_field_composes_with_and() {
     let ruleset = RuleSetBuilder::new()
-        .rule("role_ok", |r| r.when(field("role").is_in_field("allowed_roles")))
+        .rule("role_ok", |r| {
+            r.when(field("role").is_in_field("allowed_roles"))
+        })
         .rule("region_ok", |r| {
             r.when(field("region").is_in(["us-east", "us-west"]))
         })
@@ -239,14 +236,20 @@ fn is_in_field_composes_with_and() {
 
     let ctx = Context::new()
         .set("role", "admin")
-        .set("allowed_roles", Value::List(vec![Value::String("admin".into())]))
+        .set(
+            "allowed_roles",
+            Value::List(vec![Value::String("admin".into())]),
+        )
         .set("region", "us-east");
     assert_eq!(ruleset.evaluate(&ctx), Some(Verdict::new("allowed", true)));
 
     // Wrong region
     let ctx = Context::new()
         .set("role", "admin")
-        .set("allowed_roles", Value::List(vec![Value::String("admin".into())]))
+        .set(
+            "allowed_roles",
+            Value::List(vec![Value::String("admin".into())]),
+        )
         .set("region", "eu-west");
     assert!(ruleset.evaluate(&ctx).is_none());
 }
@@ -254,20 +257,24 @@ fn is_in_field_composes_with_and() {
 #[test]
 fn is_in_field_composes_with_not() {
     let ruleset = RuleSetBuilder::new()
-        .rule("blocked", |r| r.when(field("role").is_in_field("blocked_roles")))
+        .rule("blocked", |r| {
+            r.when(field("role").is_in_field("blocked_roles"))
+        })
         .rule("allowed", |r| r.when(!rule_ref("blocked")))
         .terminal("allowed", 0)
         .compile()
         .unwrap();
 
-    let ctx_ok = Context::new()
-        .set("role", "viewer")
-        .set("blocked_roles", Value::List(vec![Value::String("banned".into())]));
+    let ctx_ok = Context::new().set("role", "viewer").set(
+        "blocked_roles",
+        Value::List(vec![Value::String("banned".into())]),
+    );
     assert!(ruleset.evaluate(&ctx_ok).is_some());
 
-    let ctx_blocked = Context::new()
-        .set("role", "banned")
-        .set("blocked_roles", Value::List(vec![Value::String("banned".into())]));
+    let ctx_blocked = Context::new().set("role", "banned").set(
+        "blocked_roles",
+        Value::List(vec![Value::String("banned".into())]),
+    );
     assert!(ruleset.evaluate(&ctx_blocked).is_none());
 }
 
@@ -286,12 +293,15 @@ fn list_field_absent_is_false_not_panic() {
     // Neither field present
     assert!(ruleset.evaluate(&Context::new()).is_none());
     // Only role present
-    assert!(ruleset.evaluate(&Context::new().set("role", "admin")).is_none());
+    assert!(ruleset
+        .evaluate(&Context::new().set("role", "admin"))
+        .is_none());
     // Only list present
     assert!(ruleset
-        .evaluate(
-            &Context::new().set("allowed_roles", Value::List(vec![Value::String("admin".into())]))
-        )
+        .evaluate(&Context::new().set(
+            "allowed_roles",
+            Value::List(vec![Value::String("admin".into())])
+        ))
         .is_none());
 }
 
@@ -329,7 +339,9 @@ fn rbac_scenario_list_based_permissions() {
         .rule("grant", |r| {
             r.when(rule_ref("has_required_role").and(rule_ref("not_suspended")))
         })
-        .rule("deny_suspended", |r| r.when(field("user.suspended").eq(true)))
+        .rule("deny_suspended", |r| {
+            r.when(field("user.suspended").eq(true))
+        })
         .terminal("deny_suspended", 0)
         .terminal("grant", 10)
         .compile()

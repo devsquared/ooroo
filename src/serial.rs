@@ -371,11 +371,17 @@ fn unflatten_expr(expr: SerializedExpr) -> Result<CompiledExpr, DeserializeError
             value: deserialize_value(value),
         }),
         SerializedExpr::RuleRef(idx) => Ok(CompiledExpr::RuleRef(idx)),
-        SerializedExpr::In { field_slot, members } => Ok(CompiledExpr::In {
+        SerializedExpr::In {
+            field_slot,
+            members,
+        } => Ok(CompiledExpr::In {
             field_index: field_slot,
             members: members.into_iter().map(deserialize_bound).collect(),
         }),
-        SerializedExpr::NotIn { field_slot, members } => Ok(CompiledExpr::NotIn {
+        SerializedExpr::NotIn {
+            field_slot,
+            members,
+        } => Ok(CompiledExpr::NotIn {
             field_index: field_slot,
             members: members.into_iter().map(deserialize_bound).collect(),
         }),
@@ -585,8 +591,14 @@ fn validate_expr(
             }
             Ok(())
         }
-        SerializedExpr::In { field_slot, members }
-        | SerializedExpr::NotIn { field_slot, members } => {
+        SerializedExpr::In {
+            field_slot,
+            members,
+        }
+        | SerializedExpr::NotIn {
+            field_slot,
+            members,
+        } => {
             if *field_slot >= field_count {
                 return Err(DeserializeError::Validation(format!(
                     "field slot {field_slot} out of bounds (max {field_count})"

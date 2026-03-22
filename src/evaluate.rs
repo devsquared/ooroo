@@ -135,13 +135,15 @@ fn eval_expr(expr: &CompiledExpr, field_values: &[Option<Value>], results: &[boo
             .get(*field_index)
             .and_then(Option::as_ref)
             .is_some_and(|ctx_val| {
-                members.iter().any(|m| match resolve_bound(m, field_values) {
-                    Some(Value::List(items)) => items
-                        .iter()
-                        .any(|item| ctx_val.compare(CompareOp::Eq, item) == Some(true)),
-                    Some(v) => ctx_val.compare(CompareOp::Eq, v) == Some(true),
-                    None => false,
-                })
+                members
+                    .iter()
+                    .any(|m| match resolve_bound(m, field_values) {
+                        Some(Value::List(items)) => items
+                            .iter()
+                            .any(|item| ctx_val.compare(CompareOp::Eq, item) == Some(true)),
+                        Some(v) => ctx_val.compare(CompareOp::Eq, v) == Some(true),
+                        None => false,
+                    })
             }),
         CompiledExpr::NotIn {
             field_index,
@@ -150,13 +152,15 @@ fn eval_expr(expr: &CompiledExpr, field_values: &[Option<Value>], results: &[boo
             .get(*field_index)
             .and_then(Option::as_ref)
             .is_some_and(|ctx_val| {
-                !members.iter().any(|m| match resolve_bound(m, field_values) {
-                    Some(Value::List(items)) => items
-                        .iter()
-                        .any(|item| ctx_val.compare(CompareOp::Eq, item) == Some(true)),
-                    Some(v) => ctx_val.compare(CompareOp::Eq, v) == Some(true),
-                    None => false,
-                })
+                !members
+                    .iter()
+                    .any(|m| match resolve_bound(m, field_values) {
+                        Some(Value::List(items)) => items
+                            .iter()
+                            .any(|item| ctx_val.compare(CompareOp::Eq, item) == Some(true)),
+                        Some(v) => ctx_val.compare(CompareOp::Eq, v) == Some(true),
+                        None => false,
+                    })
             }),
         CompiledExpr::Between {
             field_index,
@@ -520,26 +524,22 @@ mod tests {
             .compile()
             .unwrap();
 
-        let ctx = Context::new()
-            .set("role", "admin")
-            .set(
-                "allowed_roles",
-                Value::List(vec![
-                    Value::String("admin".into()),
-                    Value::String("editor".into()),
-                ]),
-            );
+        let ctx = Context::new().set("role", "admin").set(
+            "allowed_roles",
+            Value::List(vec![
+                Value::String("admin".into()),
+                Value::String("editor".into()),
+            ]),
+        );
         assert_eq!(ruleset.evaluate(&ctx), Some(Verdict::new("r", true)));
 
-        let ctx_miss = Context::new()
-            .set("role", "guest")
-            .set(
-                "allowed_roles",
-                Value::List(vec![
-                    Value::String("admin".into()),
-                    Value::String("editor".into()),
-                ]),
-            );
+        let ctx_miss = Context::new().set("role", "guest").set(
+            "allowed_roles",
+            Value::List(vec![
+                Value::String("admin".into()),
+                Value::String("editor".into()),
+            ]),
+        );
         assert_eq!(ruleset.evaluate(&ctx_miss), None);
     }
 
@@ -555,15 +555,13 @@ mod tests {
             .compile()
             .unwrap();
 
-        let ctx = Context::new()
-            .set("role", "editor")
-            .set(
-                "allowed_roles",
-                Value::List(vec![
-                    Value::String("admin".into()),
-                    Value::String("editor".into()),
-                ]),
-            );
+        let ctx = Context::new().set("role", "editor").set(
+            "allowed_roles",
+            Value::List(vec![
+                Value::String("admin".into()),
+                Value::String("editor".into()),
+            ]),
+        );
         assert_eq!(ruleset.evaluate(&ctx), Some(Verdict::new("r", true)));
     }
 
@@ -578,20 +576,16 @@ mod tests {
             .compile()
             .unwrap();
 
-        let ctx_ok = Context::new()
-            .set("role", "viewer")
-            .set(
-                "blocked_roles",
-                Value::List(vec![Value::String("banned".into())]),
-            );
+        let ctx_ok = Context::new().set("role", "viewer").set(
+            "blocked_roles",
+            Value::List(vec![Value::String("banned".into())]),
+        );
         assert_eq!(ruleset.evaluate(&ctx_ok), Some(Verdict::new("r", true)));
 
-        let ctx_blocked = Context::new()
-            .set("role", "banned")
-            .set(
-                "blocked_roles",
-                Value::List(vec![Value::String("banned".into())]),
-            );
+        let ctx_blocked = Context::new().set("role", "banned").set(
+            "blocked_roles",
+            Value::List(vec![Value::String("banned".into())]),
+        );
         assert_eq!(ruleset.evaluate(&ctx_blocked), None);
     }
 

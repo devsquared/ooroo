@@ -4,9 +4,10 @@ Ooroo is a compiled rule engine for Rust. Rules are authored via a builder API o
 
 ## Verifying Changes (CI Parity)
 
-Run these locally in order before considering a change complete. They match the CI pipeline exactly.
+Run these locally in order before considering a change complete. They match the CI pipeline exactly. **Always run `cargo fmt` before committing** — the CI `fmt --check` step will fail otherwise.
 
 ```bash
+cargo fmt                  # fix formatting — run this before every commit
 cargo fmt --check          # formatting — fix with: cargo fmt
 cargo clippy -- -D warnings  # lints — all warnings are errors
 cargo test                 # unit + integration tests

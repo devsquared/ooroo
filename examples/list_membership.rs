@@ -30,7 +30,9 @@ fn main() {
         .rule("grant", |r| {
             r.when(rule_ref("tier_allowed").and(rule_ref("not_suspended")))
         })
-        .rule("deny_suspended", |r| r.when(field("user.suspended").eq(true)))
+        .rule("deny_suspended", |r| {
+            r.when(field("user.suspended").eq(true))
+        })
         .terminal("deny_suspended", 0)
         .terminal("grant", 10)
         .compile()

@@ -320,8 +320,16 @@ mod tests {
 
     #[test]
     fn list_equality() {
-        let a = Value::List(vec![Value::Int(1), Value::Bool(true), Value::String("x".into())]);
-        let b = Value::List(vec![Value::Int(1), Value::Bool(true), Value::String("x".into())]);
+        let a = Value::List(vec![
+            Value::Int(1),
+            Value::Bool(true),
+            Value::String("x".into()),
+        ]);
+        let b = Value::List(vec![
+            Value::Int(1),
+            Value::Bool(true),
+            Value::String("x".into()),
+        ]);
         let c = Value::List(vec![Value::Int(2)]);
         assert_eq!(a, b);
         assert_ne!(a, c);
@@ -338,7 +346,11 @@ mod tests {
     fn list_display() {
         let empty = Value::List(vec![]);
         assert_eq!(empty.to_string(), "[]");
-        let mixed = Value::List(vec![Value::Int(1), Value::String("hi".into()), Value::Bool(false)]);
+        let mixed = Value::List(vec![
+            Value::Int(1),
+            Value::String("hi".into()),
+            Value::Bool(false),
+        ]);
         assert_eq!(mixed.to_string(), "[1, \"hi\", false]");
     }
 

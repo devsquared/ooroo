@@ -1,6 +1,9 @@
 #![cfg(feature = "binary-cache")]
 
-use ooroo::{bound_field, field, rule_ref, Context, DeserializeError, RuleSet, RuleSetBuilder, Value, Verdict};
+use ooroo::{
+    bound_field, field, rule_ref, Context, DeserializeError, RuleSet, RuleSetBuilder, Value,
+    Verdict,
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -450,24 +453,20 @@ fn list_value_round_trip() {
     let bytes = original.to_bytes(None).unwrap();
     let restored = RuleSet::from_bytes(&bytes).unwrap();
 
-    let ctx = Context::new()
-        .set("role", "admin")
-        .set(
-            "allowed_roles",
-            Value::List(vec![
-                Value::String("admin".into()),
-                Value::String("editor".into()),
-            ]),
-        );
+    let ctx = Context::new().set("role", "admin").set(
+        "allowed_roles",
+        Value::List(vec![
+            Value::String("admin".into()),
+            Value::String("editor".into()),
+        ]),
+    );
     assert_eq!(original.evaluate(&ctx), restored.evaluate(&ctx));
     assert_eq!(restored.evaluate(&ctx), Some(Verdict::new("r", true)));
 
-    let ctx_miss = Context::new()
-        .set("role", "guest")
-        .set(
-            "allowed_roles",
-            Value::List(vec![Value::String("admin".into())]),
-        );
+    let ctx_miss = Context::new().set("role", "guest").set(
+        "allowed_roles",
+        Value::List(vec![Value::String("admin".into())]),
+    );
     assert_eq!(original.evaluate(&ctx_miss), restored.evaluate(&ctx_miss));
     assert_eq!(restored.evaluate(&ctx_miss), None);
 }
