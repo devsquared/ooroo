@@ -14,13 +14,23 @@ pub enum Value {
     Bool(bool),
     /// A UTF-8 string.
     String(String),
+    /// An ordered list of values (heterogeneous elements allowed).
+    List(Vec<Value>),
 }
 
 impl Value {
     /// Compare this value to another using the given operator.
     /// Returns `None` for incompatible types or unsupported operations (e.g. Gt on bools).
+    /// Lists only support `Eq` and `Neq`; ordering comparisons return `None`.
     #[must_use]
     pub fn compare(&self, op: CompareOp, other: &Value) -> Option<bool> {
+        if let (Value::List(a), Value::List(b)) = (self, other) {
+            return match op {
+                CompareOp::Eq => Some(a == b),
+                CompareOp::Neq => Some(a != b),
+                _ => None,
+            };
+        }
         let ord = self.partial_cmp_value(other)?;
         Some(match op {
             CompareOp::Eq => ord == Ordering::Equal,
@@ -30,6 +40,18 @@ impl Value {
             CompareOp::Lt => ord == Ordering::Less,
             CompareOp::Lte => ord != Ordering::Greater,
         })
+    }
+
+    /// Returns `true` if `self` is a `Value::List` that contains `item`.
+    /// Uses the same equality semantics as `compare(Eq, ...)`.
+    #[must_use]
+    pub fn contains(&self, item: &Value) -> bool {
+        match self {
+            Value::List(items) => items
+                .iter()
+                .any(|v| v.compare(CompareOp::Eq, item) == Some(true)),
+            _ => false,
+        }
     }
 
     #[allow(clippy::cast_precision_loss)]
@@ -131,6 +153,12 @@ impl From<String> for Value {
     }
 }
 
+impl From<Vec<Value>> for Value {
+    fn from(v: Vec<Value>) -> Self {
+        Value::List(v)
+    }
+}
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -138,6 +166,16 @@ impl fmt::Display for Value {
             Value::Float(v) => write!(f, "{v}"),
             Value::Bool(v) => write!(f, "{v}"),
             Value::String(v) => write!(f, "\"{v}\""),
+            Value::List(items) => {
+                write!(f, "[")?;
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{item}")?;
+                }
+                write!(f, "]")
+            }
         }
     }
 }
@@ -278,6 +316,97 @@ mod tests {
     fn like_case_sensitive() {
         assert!(!like_match("Hello", "hello"));
         assert!(like_match("Hello", "Hello"));
+    }
+
+    #[test]
+    fn list_equality() {
+        let a = Value::List(vec![
+            Value::Int(1),
+            Value::Bool(true),
+            Value::String("x".into()),
+        ]);
+        let b = Value::List(vec![
+            Value::Int(1),
+            Value::Bool(true),
+            Value::String("x".into()),
+        ]);
+        let c = Value::List(vec![Value::Int(2)]);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+        assert_ne!(a, Value::List(vec![]));
+    }
+
+    #[test]
+    fn list_from_vec() {
+        let v = vec![Value::Int(1), Value::Int(2)];
+        assert_eq!(Value::from(v.clone()), Value::List(v));
+    }
+
+    #[test]
+    fn list_display() {
+        let empty = Value::List(vec![]);
+        assert_eq!(empty.to_string(), "[]");
+        let mixed = Value::List(vec![
+            Value::Int(1),
+            Value::String("hi".into()),
+            Value::Bool(false),
+        ]);
+        assert_eq!(mixed.to_string(), "[1, \"hi\", false]");
+    }
+
+    #[test]
+    fn list_compare_eq_neq() {
+        let a = Value::List(vec![Value::Int(1), Value::Int(2)]);
+        let b = Value::List(vec![Value::Int(1), Value::Int(2)]);
+        let c = Value::List(vec![Value::Int(3)]);
+        assert_eq!(a.compare(CompareOp::Eq, &b), Some(true));
+        assert_eq!(a.compare(CompareOp::Neq, &b), Some(false));
+        assert_eq!(a.compare(CompareOp::Eq, &c), Some(false));
+        assert_eq!(a.compare(CompareOp::Neq, &c), Some(true));
+    }
+
+    #[test]
+    fn list_compare_ordering_returns_none() {
+        let list = Value::List(vec![Value::Int(1)]);
+        let other = Value::List(vec![Value::Int(2)]);
+        assert_eq!(list.compare(CompareOp::Gt, &other), None);
+        assert_eq!(list.compare(CompareOp::Gte, &other), None);
+        assert_eq!(list.compare(CompareOp::Lt, &other), None);
+        assert_eq!(list.compare(CompareOp::Lte, &other), None);
+    }
+
+    #[test]
+    fn list_compare_with_scalar_returns_none() {
+        let list = Value::List(vec![Value::Int(1)]);
+        assert_eq!(list.compare(CompareOp::Eq, &Value::Int(1)), None);
+        assert_eq!(Value::Int(1).compare(CompareOp::Eq, &list), None);
+    }
+
+    #[test]
+    fn contains_scalar_in_list() {
+        let list = Value::List(vec![
+            Value::Int(1),
+            Value::String("hello".into()),
+            Value::Bool(true),
+        ]);
+        assert!(list.contains(&Value::Int(1)));
+        assert!(list.contains(&Value::String("hello".into())));
+        assert!(list.contains(&Value::Bool(true)));
+        assert!(!list.contains(&Value::Int(99)));
+        assert!(!list.contains(&Value::String("world".into())));
+    }
+
+    #[test]
+    fn contains_on_non_list_returns_false() {
+        assert!(!Value::Int(1).contains(&Value::Int(1)));
+        assert!(!Value::String("x".into()).contains(&Value::String("x".into())));
+    }
+
+    #[test]
+    fn contains_cross_type_int_float() {
+        // Int/Float cross-type equality works via compare
+        let list = Value::List(vec![Value::Float(10.0)]);
+        assert!(list.contains(&Value::Int(10)));
     }
 
     #[test]

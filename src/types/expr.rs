@@ -353,6 +353,22 @@ impl FieldExpr {
         }
     }
 
+    /// Build an `IN` membership test against a context field that holds a [`Value::List`].
+    ///
+    /// Equivalent to `field(f).is_in([bound_field(list_field)])`, but expresses
+    /// intent more clearly when the right-hand side is always a list-valued field.
+    ///
+    /// At evaluation time, if `list_field` resolves to a `Value::List`, each element
+    /// is checked for equality with the field value. If the field is absent or does
+    /// not resolve to a list, the expression evaluates to `false`.
+    #[must_use]
+    pub fn is_in_field(self, list_field: &str) -> Expr {
+        Expr::In {
+            field: self.path,
+            members: vec![Bound::Field(list_field.to_owned())],
+        }
+    }
+
     /// Build a `NOT IN` membership test.
     ///
     /// Each member accepts any scalar literal (via `Into<Value>`) or a field

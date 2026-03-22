@@ -135,10 +135,15 @@ fn eval_expr(expr: &CompiledExpr, field_values: &[Option<Value>], results: &[boo
             .get(*field_index)
             .and_then(Option::as_ref)
             .is_some_and(|ctx_val| {
-                members.iter().any(|m| {
-                    resolve_bound(m, field_values)
-                        .is_some_and(|v| ctx_val.compare(CompareOp::Eq, v) == Some(true))
-                })
+                members
+                    .iter()
+                    .any(|m| match resolve_bound(m, field_values) {
+                        Some(Value::List(items)) => items
+                            .iter()
+                            .any(|item| ctx_val.compare(CompareOp::Eq, item) == Some(true)),
+                        Some(v) => ctx_val.compare(CompareOp::Eq, v) == Some(true),
+                        None => false,
+                    })
             }),
         CompiledExpr::NotIn {
             field_index,
@@ -147,10 +152,15 @@ fn eval_expr(expr: &CompiledExpr, field_values: &[Option<Value>], results: &[boo
             .get(*field_index)
             .and_then(Option::as_ref)
             .is_some_and(|ctx_val| {
-                !members.iter().any(|m| {
-                    resolve_bound(m, field_values)
-                        .is_some_and(|v| ctx_val.compare(CompareOp::Eq, v) == Some(true))
-                })
+                !members
+                    .iter()
+                    .any(|m| match resolve_bound(m, field_values) {
+                        Some(Value::List(items)) => items
+                            .iter()
+                            .any(|item| ctx_val.compare(CompareOp::Eq, item) == Some(true)),
+                        Some(v) => ctx_val.compare(CompareOp::Eq, v) == Some(true),
+                        None => false,
+                    })
             }),
         CompiledExpr::Between {
             field_index,
@@ -503,6 +513,80 @@ mod tests {
             &ctx,
         );
         assert_eq!(result, Some(Verdict::new("r", true)));
+    }
+
+    #[test]
+    fn eval_is_in_field_list_match() {
+        use crate::{bound_field, Value};
+        let ruleset = RuleSetBuilder::new()
+            .rule("r", |r| r.when(field("role").is_in_field("allowed_roles")))
+            .terminal("r", 0)
+            .compile()
+            .unwrap();
+
+        let ctx = Context::new().set("role", "admin").set(
+            "allowed_roles",
+            Value::List(vec![
+                Value::String("admin".into()),
+                Value::String("editor".into()),
+            ]),
+        );
+        assert_eq!(ruleset.evaluate(&ctx), Some(Verdict::new("r", true)));
+
+        let ctx_miss = Context::new().set("role", "guest").set(
+            "allowed_roles",
+            Value::List(vec![
+                Value::String("admin".into()),
+                Value::String("editor".into()),
+            ]),
+        );
+        assert_eq!(ruleset.evaluate(&ctx_miss), None);
+    }
+
+    #[test]
+    fn eval_in_bound_field_expands_list() {
+        use crate::{bound_field, Value};
+        // is_in([bound_field(...)]) should expand when the bound resolves to a list
+        let ruleset = RuleSetBuilder::new()
+            .rule("r", |r| {
+                r.when(field("role").is_in([bound_field("allowed_roles")]))
+            })
+            .terminal("r", 0)
+            .compile()
+            .unwrap();
+
+        let ctx = Context::new().set("role", "editor").set(
+            "allowed_roles",
+            Value::List(vec![
+                Value::String("admin".into()),
+                Value::String("editor".into()),
+            ]),
+        );
+        assert_eq!(ruleset.evaluate(&ctx), Some(Verdict::new("r", true)));
+    }
+
+    #[test]
+    fn eval_not_in_field_list() {
+        use crate::{bound_field, Value};
+        let ruleset = RuleSetBuilder::new()
+            .rule("r", |r| {
+                r.when(field("role").not_in([bound_field("blocked_roles")]))
+            })
+            .terminal("r", 0)
+            .compile()
+            .unwrap();
+
+        let ctx_ok = Context::new().set("role", "viewer").set(
+            "blocked_roles",
+            Value::List(vec![Value::String("banned".into())]),
+        );
+        assert_eq!(ruleset.evaluate(&ctx_ok), Some(Verdict::new("r", true)));
+
+        let ctx_blocked = Context::new().set("role", "banned").set(
+            "blocked_roles",
+            Value::List(vec![Value::String("banned".into())]),
+        );
+        assert_eq!(ruleset.evaluate(&ctx_blocked), None);
     }
 
     #[test]
