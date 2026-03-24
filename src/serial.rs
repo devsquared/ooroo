@@ -35,7 +35,7 @@ use crate::types::{
 // ---------------------------------------------------------------------------
 
 const MAGIC: &[u8; 4] = b"OORO";
-const FORMAT_VERSION: u16 = 3;
+const FORMAT_VERSION: u16 = 4;
 const ENGINE_VERSION: u16 = 1;
 const HEADER_SIZE: usize = 32;
 
@@ -139,6 +139,15 @@ enum SerializedExpr {
     },
     IsNull(usize),
     IsNotNull(usize),
+    CompareFields {
+        left_slot: usize,
+        op: SerializedCompareOp,
+        right_slot: usize,
+    },
+    AtLeast {
+        n: usize,
+        exprs: Vec<SerializedExpr>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -305,6 +314,19 @@ fn flatten_expr(expr: &CompiledExpr) -> SerializedExpr {
         },
         CompiledExpr::IsNull(idx) => SerializedExpr::IsNull(*idx),
         CompiledExpr::IsNotNull(idx) => SerializedExpr::IsNotNull(*idx),
+        CompiledExpr::CompareFields {
+            left_index,
+            op,
+            right_index,
+        } => SerializedExpr::CompareFields {
+            left_slot: *left_index,
+            op: serialize_op(*op),
+            right_slot: *right_index,
+        },
+        CompiledExpr::AtLeast { n, exprs } => SerializedExpr::AtLeast {
+            n: *n,
+            exprs: exprs.iter().map(flatten_expr).collect(),
+        },
     }
 }
 
@@ -410,6 +432,22 @@ fn unflatten_expr(expr: SerializedExpr) -> Result<CompiledExpr, DeserializeError
         }),
         SerializedExpr::IsNull(idx) => Ok(CompiledExpr::IsNull(idx)),
         SerializedExpr::IsNotNull(idx) => Ok(CompiledExpr::IsNotNull(idx)),
+        SerializedExpr::CompareFields {
+            left_slot,
+            op,
+            right_slot,
+        } => Ok(CompiledExpr::CompareFields {
+            left_index: left_slot,
+            op: deserialize_op(op),
+            right_index: right_slot,
+        }),
+        SerializedExpr::AtLeast { n, exprs } => Ok(CompiledExpr::AtLeast {
+            n,
+            exprs: exprs
+                .into_iter()
+                .map(unflatten_expr)
+                .collect::<Result<Vec<_>, _>>()?,
+        }),
     }
 }
 
@@ -670,6 +708,29 @@ fn validate_expr(
         }
         SerializedExpr::Not(inner) => {
             validate_expr(inner, field_count, rule_count, current_rule_index)
+        }
+        SerializedExpr::CompareFields {
+            left_slot,
+            right_slot,
+            ..
+        } => {
+            if *left_slot >= field_count {
+                return Err(DeserializeError::Validation(format!(
+                    "left field slot {left_slot} out of bounds (max {field_count})"
+                )));
+            }
+            if *right_slot >= field_count {
+                return Err(DeserializeError::Validation(format!(
+                    "right field slot {right_slot} out of bounds (max {field_count})"
+                )));
+            }
+            Ok(())
+        }
+        SerializedExpr::AtLeast { exprs, .. } => {
+            for child in exprs {
+                validate_expr(child, field_count, rule_count, current_rule_index)?;
+            }
+            Ok(())
         }
     }
 }

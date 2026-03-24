@@ -541,7 +541,7 @@ mod tests {
 
     #[test]
     fn eval_is_in_field_list_match() {
-        use crate::{bound_field, Value};
+        use crate::Value;
         let ruleset = RuleSetBuilder::new()
             .rule("r", |r| r.when(field("role").is_in_field("allowed_roles")))
             .terminal("r", 0)
