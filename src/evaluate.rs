@@ -198,6 +198,18 @@ fn eval_expr(expr: &CompiledExpr, field_values: &[Option<Value>], results: &[boo
         CompiledExpr::IsNotNull(field_index) => {
             field_values.get(*field_index).is_some_and(Option::is_some)
         }
+        CompiledExpr::CompareFields {
+            left_index,
+            op,
+            right_index,
+        } => {
+            let left_val = field_values.get(*left_index).and_then(Option::as_ref);
+            let right_val = field_values.get(*right_index).and_then(Option::as_ref);
+            match (left_val, right_val) {
+                (Some(l), Some(r)) => l.compare(*op, r).unwrap_or(false),
+                _ => false,
+            }
+        }
     }
 }
 
