@@ -143,6 +143,12 @@ fn collect_and_check_refs(
             Ok(())
         }
         Expr::Not(inner) => collect_and_check_refs(inner, rule_name, rule_map),
+        Expr::AtLeast { exprs, .. } => {
+            for e in exprs {
+                collect_and_check_refs(e, rule_name, rule_map)?;
+            }
+            Ok(())
+        }
         Expr::Compare { .. }
         | Expr::In { .. }
         | Expr::NotIn { .. }
@@ -228,6 +234,11 @@ fn collect_rule_refs_inner(expr: &Expr, refs: &mut Vec<String>) {
             collect_rule_refs_inner(b, refs);
         }
         Expr::Not(inner) => collect_rule_refs_inner(inner, refs),
+        Expr::AtLeast { exprs, .. } => {
+            for e in exprs {
+                collect_rule_refs_inner(e, refs);
+            }
+        }
         Expr::Compare { .. }
         | Expr::In { .. }
         | Expr::NotIn { .. }
@@ -349,6 +360,11 @@ fn collect_fields(expr: &Expr, registry: &mut FieldRegistry) {
             collect_fields(b, registry);
         }
         Expr::Not(inner) => collect_fields(inner, registry),
+        Expr::AtLeast { exprs, .. } => {
+            for e in exprs {
+                collect_fields(e, registry);
+            }
+        }
         Expr::RuleRef(_) => {}
     }
 }
@@ -448,6 +464,13 @@ fn compile_expr(
             right_index: field_registry
                 .get(right)
                 .expect("right field should be registered"),
+        },
+        Expr::AtLeast { n, exprs } => CompiledExpr::AtLeast {
+            n: *n,
+            exprs: exprs
+                .iter()
+                .map(|e| compile_expr(e, field_registry, rule_indices))
+                .collect(),
         },
     }
 }

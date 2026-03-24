@@ -297,6 +297,11 @@ fn collect_rule_ref_indices(expr: &CompiledExpr, out: &mut Vec<usize>) {
             collect_rule_ref_indices(b, out);
         }
         CompiledExpr::Not(inner) => collect_rule_ref_indices(inner, out),
+        CompiledExpr::AtLeast { exprs, .. } => {
+            for e in exprs {
+                collect_rule_ref_indices(e, out);
+            }
+        }
         CompiledExpr::Compare { .. }
         | CompiledExpr::In { .. }
         | CompiledExpr::NotIn { .. }

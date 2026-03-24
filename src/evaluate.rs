@@ -210,6 +210,18 @@ fn eval_expr(expr: &CompiledExpr, field_values: &[Option<Value>], results: &[boo
                 _ => false,
             }
         }
+        CompiledExpr::AtLeast { n, exprs } => {
+            let mut count = 0usize;
+            for e in exprs {
+                if eval_expr(e, field_values, results) {
+                    count += 1;
+                    if count >= *n {
+                        return true;
+                    }
+                }
+            }
+            count >= *n
+        }
     }
 }
 
