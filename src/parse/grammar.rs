@@ -182,13 +182,53 @@ fn compare_op(input: &mut &str) -> ModalResult<CompareOp> {
 
 // -- Expressions (precedence: OR < AND < NOT < primary) ---------------------
 
+fn at_least_expr(input: &mut &str) -> ModalResult<Expr> {
+    alt(("AT_LEAST", "at_least")).parse_next(input)?;
+    ws.parse_next(input)?;
+    // Only commit once we see '('; otherwise backtrack so comparison_or_rule_ref
+    // can treat "at_least" as a rule reference.
+    if opt('(').parse_next(input)?.is_none() {
+        return Err(ErrMode::Backtrack(winnow::error::ContextError::new()));
+    }
+    ws.parse_next(input)?;
+    let n_raw: i64 = cut_err(dec_int::<_, i64, _>)
+        .context(StrContext::Expected(StrContextValue::Description(
+            "non-negative integer threshold",
+        )))
+        .parse_next(input)?;
+    let n = usize::try_from(n_raw).map_err(|_| ErrMode::from_input(input).cut())?;
+    let mut exprs = Vec::new();
+    loop {
+        ws.parse_next(input)?;
+        if opt(')').parse_next(input)?.is_some() {
+            break;
+        }
+        cut_err(',')
+            .context(StrContext::Expected(StrContextValue::Description(
+                "',' or ')' after AT_LEAST expression",
+            )))
+            .parse_next(input)?;
+        let e = cut_err(expr)
+            .context(StrContext::Expected(StrContextValue::Description(
+                "expression in AT_LEAST list",
+            )))
+            .parse_next(input)?;
+        exprs.push(e);
+    }
+    Ok(Expr::AtLeast { n, exprs })
+}
+
 fn primary(input: &mut &str) -> ModalResult<Expr> {
     ws.parse_next(input)?;
-    alt((delimited('(', expr, (ws, ')')), comparison_or_rule_ref))
-        .context(StrContext::Expected(StrContextValue::Description(
-            "expression",
-        )))
-        .parse_next(input)
+    alt((
+        at_least_expr,
+        delimited('(', expr, (ws, ')')),
+        comparison_or_rule_ref,
+    ))
+    .context(StrContext::Expected(StrContextValue::Description(
+        "expression",
+    )))
+    .parse_next(input)
 }
 
 fn bound_list(input: &mut &str) -> ModalResult<Vec<Bound>> {

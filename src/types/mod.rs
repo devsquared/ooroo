@@ -14,7 +14,7 @@ pub use error::CompileError;
 pub use evaluation_report::EvaluationReport;
 pub(crate) use expr::CompiledBound;
 pub(crate) use expr::CompiledExpr;
-pub use expr::{bound_field, field, rule_ref, Bound, CompareOp, Expr, FieldExpr};
+pub use expr::{at_least, bound_field, field, rule_ref, Bound, CompareOp, Expr, FieldExpr};
 pub use field_registry::FieldRegistry;
 pub use indexed_context::{ContextBuilder, IndexedContext};
 pub(crate) use rule::CompiledRule;

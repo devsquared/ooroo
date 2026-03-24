@@ -175,6 +175,15 @@ pub enum Expr {
         /// Dot-separated path of the right-hand field.
         right: String,
     },
+    /// True when at least `n` of the given expressions evaluate to true.
+    ///
+    /// `n = 0` always returns `true`; `n > exprs.len()` always returns `false`.
+    AtLeast {
+        /// Minimum number of expressions that must be true.
+        n: usize,
+        /// The set of expressions to evaluate.
+        exprs: Vec<Expr>,
+    },
 }
 
 /// Compiled expression with all string lookups resolved to integer indices.
@@ -219,6 +228,10 @@ pub(crate) enum CompiledExpr {
         op: CompareOp,
         right_index: usize,
     },
+    AtLeast {
+        n: usize,
+        exprs: Vec<CompiledExpr>,
+    },
 }
 
 impl fmt::Display for CompareOp {
@@ -258,6 +271,10 @@ impl fmt::Display for Expr {
             Expr::IsNull(field) => write!(f, "({field} IS NULL)"),
             Expr::IsNotNull(field) => write!(f, "({field} IS NOT NULL)"),
             Expr::CompareFields { left, op, right } => write!(f, "({left} {op} {right})"),
+            Expr::AtLeast { n, exprs } => {
+                let parts: Vec<String> = exprs.iter().map(ToString::to_string).collect();
+                write!(f, "AT_LEAST({n}, {})", parts.join(", "))
+            }
         }
     }
 }
@@ -516,6 +533,35 @@ pub fn field(path: &str) -> FieldExpr {
 #[must_use]
 pub fn rule_ref(name: &str) -> Expr {
     Expr::RuleRef(name.to_owned())
+}
+
+/// Create an [`Expr::AtLeast`] that is true when at least `n` of the given
+/// expressions evaluate to true.
+///
+/// # Edge cases
+/// - `n = 0`: always `true` (vacuously satisfied).
+/// - `n > exprs.len()`: always `false` (impossible to satisfy).
+///
+/// # Example
+/// ```
+/// use ooroo::{at_least, field, RuleSetBuilder, Context};
+///
+/// let ruleset = RuleSetBuilder::new()
+///     .rule("two_of_three", |r| r.when(at_least(2, [
+///         field("a").eq(true),
+///         field("b").eq(true),
+///         field("c").eq(true),
+///     ])))
+///     .terminal("two_of_three", 0)
+///     .compile()
+///     .unwrap();
+/// ```
+#[must_use]
+pub fn at_least(n: usize, exprs: impl IntoIterator<Item = Expr>) -> Expr {
+    Expr::AtLeast {
+        n,
+        exprs: exprs.into_iter().collect(),
+    }
 }
 
 #[cfg(test)]
