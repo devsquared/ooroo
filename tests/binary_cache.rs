@@ -208,7 +208,7 @@ fn version_mismatch() {
             err,
             DeserializeError::IncompatibleVersion {
                 blob: 99,
-                supported: 3
+                supported: 4
             }
         ),
         "expected IncompatibleVersion, got: {err}"
