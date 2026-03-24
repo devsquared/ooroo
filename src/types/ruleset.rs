@@ -304,7 +304,8 @@ fn collect_rule_ref_indices(expr: &CompiledExpr, out: &mut Vec<usize>) {
         | CompiledExpr::Like { .. }
         | CompiledExpr::NotLike { .. }
         | CompiledExpr::IsNull(_)
-        | CompiledExpr::IsNotNull(_) => {}
+        | CompiledExpr::IsNotNull(_)
+        | CompiledExpr::CompareFields { .. } => {}
     }
 }
 

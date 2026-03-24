@@ -166,6 +166,15 @@ pub enum Expr {
     IsNull(String),
     /// True when the field is present and has a value.
     IsNotNull(String),
+    /// A field-to-field comparison (e.g., `amount <= limit`).
+    CompareFields {
+        /// Dot-separated path of the left-hand field.
+        left: String,
+        /// The comparison operator.
+        op: CompareOp,
+        /// Dot-separated path of the right-hand field.
+        right: String,
+    },
 }
 
 /// Compiled expression with all string lookups resolved to integer indices.
@@ -205,6 +214,11 @@ pub(crate) enum CompiledExpr {
     },
     IsNull(usize),
     IsNotNull(usize),
+    CompareFields {
+        left_index: usize,
+        op: CompareOp,
+        right_index: usize,
+    },
 }
 
 impl fmt::Display for CompareOp {
@@ -243,6 +257,7 @@ impl fmt::Display for Expr {
             Expr::NotLike { field, pattern } => write!(f, "({field} NOT LIKE \"{pattern}\")"),
             Expr::IsNull(field) => write!(f, "({field} IS NULL)"),
             Expr::IsNotNull(field) => write!(f, "({field} IS NOT NULL)"),
+            Expr::CompareFields { left, op, right } => write!(f, "({left} {op} {right})"),
         }
     }
 }
@@ -426,6 +441,66 @@ impl FieldExpr {
     #[must_use]
     pub fn is_not_null(self) -> Expr {
         Expr::IsNotNull(self.path)
+    }
+
+    /// Build a field-to-field equality comparison (`left == right`).
+    #[must_use]
+    pub fn eq_field(self, right: &str) -> Expr {
+        Expr::CompareFields {
+            left: self.path,
+            op: CompareOp::Eq,
+            right: right.to_owned(),
+        }
+    }
+
+    /// Build a field-to-field not-equal comparison (`left != right`).
+    #[must_use]
+    pub fn neq_field(self, right: &str) -> Expr {
+        Expr::CompareFields {
+            left: self.path,
+            op: CompareOp::Neq,
+            right: right.to_owned(),
+        }
+    }
+
+    /// Build a field-to-field greater-than comparison (`left > right`).
+    #[must_use]
+    pub fn gt_field(self, right: &str) -> Expr {
+        Expr::CompareFields {
+            left: self.path,
+            op: CompareOp::Gt,
+            right: right.to_owned(),
+        }
+    }
+
+    /// Build a field-to-field greater-than-or-equal comparison (`left >= right`).
+    #[must_use]
+    pub fn gte_field(self, right: &str) -> Expr {
+        Expr::CompareFields {
+            left: self.path,
+            op: CompareOp::Gte,
+            right: right.to_owned(),
+        }
+    }
+
+    /// Build a field-to-field less-than comparison (`left < right`).
+    #[must_use]
+    pub fn lt_field(self, right: &str) -> Expr {
+        Expr::CompareFields {
+            left: self.path,
+            op: CompareOp::Lt,
+            right: right.to_owned(),
+        }
+    }
+
+    /// Build a field-to-field less-than-or-equal comparison (`left <= right`).
+    #[must_use]
+    pub fn lte_field(self, right: &str) -> Expr {
+        Expr::CompareFields {
+            left: self.path,
+            op: CompareOp::Lte,
+            right: right.to_owned(),
+        }
     }
 }
 

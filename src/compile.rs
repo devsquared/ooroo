@@ -150,7 +150,8 @@ fn collect_and_check_refs(
         | Expr::Like { .. }
         | Expr::NotLike { .. }
         | Expr::IsNull(_)
-        | Expr::IsNotNull(_) => Ok(()),
+        | Expr::IsNotNull(_)
+        | Expr::CompareFields { .. } => Ok(()),
     }
 }
 
@@ -234,7 +235,8 @@ fn collect_rule_refs_inner(expr: &Expr, refs: &mut Vec<String>) {
         | Expr::Like { .. }
         | Expr::NotLike { .. }
         | Expr::IsNull(_)
-        | Expr::IsNotNull(_) => {}
+        | Expr::IsNotNull(_)
+        | Expr::CompareFields { .. } => {}
     }
 }
 
@@ -338,6 +340,10 @@ fn collect_fields(expr: &Expr, registry: &mut FieldRegistry) {
                 registry.register(path);
             }
         }
+        Expr::CompareFields { left, right, .. } => {
+            registry.register(left);
+            registry.register(right);
+        }
         Expr::And(a, b) | Expr::Or(a, b) => {
             collect_fields(a, registry);
             collect_fields(b, registry);
@@ -434,6 +440,15 @@ fn compile_expr(
                 .get(field)
                 .expect("field should be registered"),
         ),
+        Expr::CompareFields { left, op, right } => CompiledExpr::CompareFields {
+            left_index: field_registry
+                .get(left)
+                .expect("left field should be registered"),
+            op: *op,
+            right_index: field_registry
+                .get(right)
+                .expect("right field should be registered"),
+        },
     }
 }
 

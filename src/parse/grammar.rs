@@ -281,18 +281,36 @@ fn comparison_or_rule_ref(input: &mut &str) -> ModalResult<Expr> {
         });
     }
 
-    // Standard comparison operators
+    // Standard comparison operators — RHS is either a value literal (Compare)
+    // or a bare field path (CompareFields).
     if let Ok(op) = compare_op.parse_next(input) {
-        let val = cut_err(value).parse_next(input)?;
-        Ok(Expr::Compare {
-            field: name.to_owned(),
-            op,
-            value: val,
-        })
-    } else {
-        input.reset(&checkpoint);
-        Ok(Expr::RuleRef(name.to_owned()))
+        ws.parse_next(input)?;
+        // Try a literal value first so that `true`/`false` stay as Bool, not field refs.
+        let rhs_checkpoint = input.checkpoint();
+        if let Ok(val) = value.parse_next(input) {
+            return Ok(Expr::Compare {
+                field: name.to_owned(),
+                op,
+                value: val,
+            });
+        }
+        input.reset(&rhs_checkpoint);
+        if let Ok(right) = ident.parse_next(input) {
+            return Ok(Expr::CompareFields {
+                left: name.to_owned(),
+                op,
+                right: right.to_owned(),
+            });
+        }
+        return cut_err(fail)
+            .context(StrContext::Expected(StrContextValue::Description(
+                "value or field path",
+            )))
+            .parse_next(input);
     }
+
+    input.reset(&checkpoint);
+    Ok(Expr::RuleRef(name.to_owned()))
 }
 
 fn unary(input: &mut &str) -> ModalResult<Expr> {
